@@ -1,0 +1,177 @@
+# =============================================================================
+# Rust
+# =============================================================================
+
+# Build output
+/target/
+debug/
+release/
+
+# Cargo lock for libraries (keep for binaries/workspace)
+# Cargo.lock  # We keep this since this is a binary/workspace project
+
+# Generated code
+*.rs.bk
+
+# Profiling
+*.profraw
+*.profdata
+
+# =============================================================================
+# Python
+# =============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+python/*.data
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.python-version
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+pytestdebug.log
+
+# Translations
+*.mo
+*.pot
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Ruff
+.ruff_cache/
+
+# Type stubs
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# =============================================================================
+# IDE / Editor
+# =============================================================================
+
+# VSCode
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# JetBrains
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# =============================================================================
+# OS
+# =============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# =============================================================================
+# Project-specific
+# =============================================================================
+
+# Generated protobuf code (keep the module file, ignore generated)
+crates/navigator-core/src/proto/*.rs
+!crates/navigator-core/src/proto/mod.rs
+
+# Local configuration
+*.local
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Secrets/credentials (should never be committed)
+*.pem
+*.key
+*.crt
+secrets/
+credentials/

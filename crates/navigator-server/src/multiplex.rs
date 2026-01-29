@@ -1,0 +1,138 @@
+//! Protocol multiplexing for gRPC and HTTP on the same port.
+//!
+//! This module implements connection-level multiplexing that routes requests
+//! to either the gRPC service or HTTP endpoints based on the request headers.
+
+use bytes::Bytes;
+use http::{Request, Response};
+use http_body::Body;
+use http_body_util::BodyExt;
+use hyper::body::Incoming;
+use hyper_util::{
+    rt::{TokioExecutor, TokioIo},
+    server::conn::auto::Builder,
+};
+use navigator_core::proto::navigator_server::NavigatorServer;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
+use tokio::net::TcpStream;
+use tower::ServiceExt;
+
+use crate::{health_router, NavigatorService, ServerState};
+
+/// Multiplexed gRPC/HTTP service.
+#[derive(Clone)]
+pub struct MultiplexService {
+    state: Arc<ServerState>,
+}
+
+impl MultiplexService {
+    /// Create a new multiplex service.
+    #[must_use]
+    pub fn new(state: Arc<ServerState>) -> Self {
+        Self { state }
+    }
+
+    /// Serve a connection, routing to gRPC or HTTP based on content-type.
+    pub async fn serve(&self, stream: TcpStream) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let grpc_service = NavigatorServer::new(NavigatorService::new(self.state.clone()));
+        let http_service = health_router(self.state.clone());
+
+        let service = MultiplexedService {
+            grpc: grpc_service,
+            http: http_service,
+        };
+
+        Builder::new(TokioExecutor::new())
+            .serve_connection(TokioIo::new(stream), service)
+            .await?;
+
+        Ok(())
+    }
+}
+
+/// Service that multiplexes between gRPC and HTTP.
+#[derive(Clone)]
+struct MultiplexedService<G, H> {
+    grpc: G,
+    http: H,
+}
+
+impl<G, H, GBody, HBody> hyper::service::Service<Request<Incoming>> for MultiplexedService<G, H>
+where
+    G: tower::Service<Request<BoxBody>, Response = Response<GBody>> + Clone + Send + 'static,
+    G::Future: Send,
+    G::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+    GBody: Body<Data = Bytes> + Send + 'static,
+    GBody::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+    H: tower::Service<Request<BoxBody>, Response = Response<HBody>> + Clone + Send + 'static,
+    H::Future: Send,
+    H::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+    HBody: Body<Data = Bytes> + Send + 'static,
+    HBody::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
+    type Response = Response<BoxBody>;
+    type Error = Box<dyn std::error::Error + Send + Sync>;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+    fn call(&self, req: Request<Incoming>) -> Self::Future {
+        let is_grpc = req
+            .headers()
+            .get("content-type")
+            .map(|v| v.as_bytes().starts_with(b"application/grpc"))
+            .unwrap_or(false);
+
+        if is_grpc {
+            let mut grpc = self.grpc.clone();
+            Box::pin(async move {
+                let (parts, body) = req.into_parts();
+                let body = body.map_err(|e| e.into()).boxed_unsync();
+                let req = Request::from_parts(parts, BoxBody(body));
+
+                let res = grpc.ready().await.map_err(Into::into)?.call(req).await.map_err(Into::into)?;
+
+                let (parts, body) = res.into_parts();
+                let body = body.map_err(|e| e.into()).boxed_unsync();
+                Ok(Response::from_parts(parts, BoxBody(body)))
+            })
+        } else {
+            let mut http = self.http.clone();
+            Box::pin(async move {
+                let (parts, body) = req.into_parts();
+                let body = body.map_err(|e| e.into()).boxed_unsync();
+                let req = Request::from_parts(parts, BoxBody(body));
+
+                let res = http.ready().await.map_err(Into::into)?.call(req).await.map_err(Into::into)?;
+
+                let (parts, body) = res.into_parts();
+                let body = body.map_err(|e| e.into()).boxed_unsync();
+                Ok(Response::from_parts(parts, BoxBody(body)))
+            })
+        }
+    }
+}
+
+/// Boxed body type for uniform handling.
+struct BoxBody(http_body_util::combinators::UnsyncBoxBody<Bytes, Box<dyn std::error::Error + Send + Sync>>);
+
+impl Body for BoxBody {
+    type Data = Bytes;
+    type Error = Box<dyn std::error::Error + Send + Sync>;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+        Pin::new(&mut self.0).poll_frame(cx)
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.0.is_end_stream()
+    }
+
+    fn size_hint(&self) -> http_body::SizeHint {
+        self.0.size_hint()
+    }
+}

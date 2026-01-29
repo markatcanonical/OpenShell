@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package navigator.v1;
+
+option java_multiple_files = true;
+option java_package = "com.anthropic.navigator.v1";
+
+// Navigator service provides agent execution and management capabilities.
+service Navigator {
+  // Check the health of the service.
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+// Health check request.
+message HealthRequest {}
+
+// Health check response.
+message HealthResponse {
+  // Service status.
+  ServiceStatus status = 1;
+
+  // Service version.
+  string version = 2;
+
+  // Uptime in seconds.
+  uint64 uptime_seconds = 3;
+}
+
+// Service status enum.
+enum ServiceStatus {
+  SERVICE_STATUS_UNSPECIFIED = 0;
+  SERVICE_STATUS_HEALTHY = 1;
+  SERVICE_STATUS_DEGRADED = 2;
+  SERVICE_STATUS_UNHEALTHY = 3;
+}

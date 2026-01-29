@@ -1,0 +1,130 @@
+# Navigator mise configuration
+# See https://mise.jdx.dev/ for documentation
+
+experimental_monorepo_root = true
+
+[settings]
+experimental = true
+
+[monorepo]
+config_roots = ["docker"]
+
+[tools]
+python = "3.12"
+rust = "stable"
+kubectl = "latest"
+uv = "latest"
+protoc = "29"
+skaffold = "latest"
+
+[env]
+KUBECONFIG = "{{config_root}}/kubeconfig"
+_.path = ["{{config_root}}/scripts/bin"]
+
+# ============================================================================
+# Build Tasks
+# ============================================================================
+
+[tasks.build]
+description = "Build all Rust crates"
+run = "cargo build --workspace"
+
+[tasks."build:release"]
+description = "Build all Rust crates in release mode"
+run = "cargo build --workspace --release"
+
+[tasks.check]
+description = "Check all Rust crates for errors"
+run = "cargo check --workspace"
+
+[tasks.clippy]
+description = "Run Clippy lints"
+run = "cargo clippy --workspace --all-targets"
+
+[tasks.fmt]
+description = "Format Rust code"
+run = "cargo fmt --all"
+
+[tasks."fmt:check"]
+description = "Check Rust formatting"
+run = "cargo fmt --all -- --check"
+
+# ============================================================================
+# Test Tasks
+# ============================================================================
+
+[tasks.test]
+description = "Run all tests (Rust + Python)"
+depends = ["test:rust", "test:python"]
+
+[tasks."test:rust"]
+description = "Run Rust tests"
+run = "cargo test --workspace"
+
+[tasks."test:python"]
+description = "Run Python tests"
+run = "uv run pytest python/"
+
+# ============================================================================
+# Python Tasks
+# ============================================================================
+
+[tasks."python:dev"]
+description = "Install Python package in development mode (builds CLI binary)"
+run = "uv sync --group dev && uv pip install ."
+
+[tasks."python:build"]
+description = "Build Python wheel with CLI binary"
+run = "uv run maturin build --release"
+
+[tasks."python:lint"]
+description = "Lint Python code with ruff"
+run = "uv run ruff check python/"
+
+[tasks."python:fmt"]
+description = "Format Python code with ruff"
+run = "uv run ruff format python/"
+
+[tasks."python:typecheck"]
+description = "Type check Python code with ty"
+run = "uv run ty check python/"
+
+# ============================================================================
+# Server Tasks
+# ============================================================================
+
+[tasks.server]
+description = "Run the Navigator server"
+run = "cargo run -p navigator-server --"
+
+[tasks."server:release"]
+description = "Run the Navigator server in release mode"
+run = "cargo run -p navigator-server --release --"
+
+# ============================================================================
+# CLI Tasks
+# ============================================================================
+
+[tasks.cli]
+description = "Run the Navigator CLI"
+run = "cargo run -p navigator-cli --"
+
+# ============================================================================
+# Sandbox Tasks
+# ============================================================================
+
+[tasks.sandbox]
+description = "Build the sandbox and drop into an interactive shell"
+run = "cargo build -p navigator-sandbox && cargo run -p navigator-sandbox -- -i $SHELL"
+
+# ============================================================================
+# Development Tasks
+# ============================================================================
+
+[tasks.clean]
+description = "Clean build artifacts"
+run = "cargo clean"
+
+[tasks.all]
+description = "Build, lint, and test everything"
+depends = ["fmt:check", "clippy", "test", "python:lint"]
