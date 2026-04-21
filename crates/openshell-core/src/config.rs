@@ -90,6 +90,14 @@ pub struct Config {
     #[serde(default)]
     pub sandbox_image_pull_policy: String,
 
+    /// Image for the supervisor init container that injects the openshell-sandbox binary.
+    #[serde(default = "default_supervisor_image")]
+    pub supervisor_image: String,
+
+    /// Kubernetes `imagePullPolicy` for the supervisor init container.
+    #[serde(default)]
+    pub supervisor_image_pull_policy: String,
+
     /// gRPC endpoint for sandboxes to connect back to OpenShell.
     /// Used by sandbox pods to fetch their policy at startup.
     #[serde(default)]
@@ -175,6 +183,8 @@ impl Config {
             sandbox_namespace: default_sandbox_namespace(),
             sandbox_image: String::new(),
             sandbox_image_pull_policy: String::new(),
+            supervisor_image: default_supervisor_image(),
+            supervisor_image_pull_policy: String::new(),
             grpc_endpoint: String::new(),
             ssh_gateway_host: default_ssh_gateway_host(),
             ssh_gateway_port: default_ssh_gateway_port(),
@@ -237,6 +247,20 @@ impl Config {
     #[must_use]
     pub fn with_sandbox_image_pull_policy(mut self, policy: impl Into<String>) -> Self {
         self.sandbox_image_pull_policy = policy.into();
+        self
+    }
+
+    /// Create a new configuration with a supervisor image.
+    #[must_use]
+    pub fn with_supervisor_image(mut self, image: impl Into<String>) -> Self {
+        self.supervisor_image = image.into();
+        self
+    }
+
+    /// Create a new configuration with a supervisor image pull policy.
+    #[must_use]
+    pub fn with_supervisor_image_pull_policy(mut self, policy: impl Into<String>) -> Self {
+        self.supervisor_image_pull_policy = policy.into();
         self
     }
 
@@ -321,6 +345,10 @@ fn default_log_level() -> String {
 
 fn default_sandbox_namespace() -> String {
     "default".to_string()
+}
+
+fn default_supervisor_image() -> String {
+    "ghcr.io/nvidia/openshell/supervisor:latest".to_string()
 }
 
 fn default_compute_drivers() -> Vec<ComputeDriverKind> {

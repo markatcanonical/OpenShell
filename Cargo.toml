@@ -97,6 +97,9 @@ kube = { version = "0.90", features = ["runtime", "derive"] }
 kube-runtime = "0.90"
 k8s-openapi = { version = "0.21.1", features = ["v1_26"] }
 
+# System
+dirs = "5"
+
 # IDs
 uuid = { version = "1.10", features = ["v4"] }
 

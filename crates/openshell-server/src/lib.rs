@@ -246,6 +246,8 @@ async fn build_compute_runtime(
                 namespace: config.sandbox_namespace.clone(),
                 default_image: config.sandbox_image.clone(),
                 image_pull_policy: config.sandbox_image_pull_policy.clone(),
+                supervisor_image: config.supervisor_image.clone(),
+                supervisor_image_pull_policy: config.supervisor_image_pull_policy.clone(),
                 grpc_endpoint: config.grpc_endpoint.clone(),
                 ssh_listen_addr: format!("0.0.0.0:{}", config.sandbox_ssh_port),
                 ssh_port: config.sandbox_ssh_port,

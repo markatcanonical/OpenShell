@@ -36,6 +36,12 @@ struct Args {
     #[arg(long, env = "OPENSHELL_SANDBOX_IMAGE_PULL_POLICY")]
     sandbox_image_pull_policy: Option<String>,
 
+    #[arg(long, env = "OPENSHELL_SUPERVISOR_IMAGE")]
+    supervisor_image: Option<String>,
+
+    #[arg(long, env = "OPENSHELL_SUPERVISOR_IMAGE_PULL_POLICY")]
+    supervisor_image_pull_policy: Option<String>,
+
     #[arg(long, env = "OPENSHELL_GRPC_ENDPOINT")]
     grpc_endpoint: Option<String>,
 
@@ -68,6 +74,8 @@ async fn main() -> Result<()> {
         namespace: args.sandbox_namespace,
         default_image: args.sandbox_image.unwrap_or_default(),
         image_pull_policy: args.sandbox_image_pull_policy.unwrap_or_default(),
+        supervisor_image: args.supervisor_image.unwrap_or_else(|| "ghcr.io/nvidia/openshell/supervisor:latest".to_string()),
+        supervisor_image_pull_policy: args.supervisor_image_pull_policy.unwrap_or_default(),
         grpc_endpoint: args.grpc_endpoint.unwrap_or_default(),
         ssh_listen_addr: format!("0.0.0.0:{}", args.sandbox_ssh_port),
         ssh_port: args.sandbox_ssh_port,

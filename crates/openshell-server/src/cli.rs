@@ -70,6 +70,14 @@ struct Args {
     #[arg(long, env = "OPENSHELL_SANDBOX_IMAGE_PULL_POLICY")]
     sandbox_image_pull_policy: Option<String>,
 
+    /// Supervisor image used to inject the openshell-sandbox binary.
+    #[arg(long, env = "OPENSHELL_SUPERVISOR_IMAGE")]
+    supervisor_image: Option<String>,
+
+    /// Kubernetes imagePullPolicy for the supervisor init container.
+    #[arg(long, env = "OPENSHELL_SUPERVISOR_IMAGE_PULL_POLICY")]
+    supervisor_image_pull_policy: Option<String>,
+
     /// gRPC endpoint for sandboxes to callback to `OpenShell`.
     /// This should be reachable from within the Kubernetes cluster.
     #[arg(long, env = "OPENSHELL_GRPC_ENDPOINT")]
@@ -239,11 +247,15 @@ async fn run_from_args(args: Args) -> Result<()> {
     if let Some(image) = args.sandbox_image {
         config = config.with_sandbox_image(image);
     }
-
     if let Some(policy) = args.sandbox_image_pull_policy {
         config = config.with_sandbox_image_pull_policy(policy);
     }
-
+    if let Some(image) = args.supervisor_image {
+        config = config.with_supervisor_image(image);
+    }
+    if let Some(policy) = args.supervisor_image_pull_policy {
+        config = config.with_supervisor_image_pull_policy(policy);
+    }
     if let Some(endpoint) = args.grpc_endpoint {
         config = config.with_grpc_endpoint(endpoint);
     }

@@ -6,6 +6,8 @@ pub struct KubernetesComputeConfig {
     pub namespace: String,
     pub default_image: String,
     pub image_pull_policy: String,
+    pub supervisor_image: String,
+    pub supervisor_image_pull_policy: String,
     pub grpc_endpoint: String,
     pub ssh_listen_addr: String,
     pub ssh_port: u16,

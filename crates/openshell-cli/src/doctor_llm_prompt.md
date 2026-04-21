@@ -26,6 +26,15 @@ openshell doctor exec -- free -h
 openshell doctor exec -- sh           # interactive shell
 ```
 
+## Snap Service Diagnostics
+
+1. **Verify daemon status** (if using the OpenShell snap): Run `openshell doctor exec -- systemctl status snap.openshell.gateway`. If failed, restart with `systemctl restart snap.openshell.gateway` and check its journal logs: `openshell doctor exec -- journalctl -u snap.openshell.gateway --no-pager -n 50`.
+2. **Ping the gateway endpoint**: Run `openshell status` to verify connectivity. The default gateway endpoint is `https://127.0.0.1:8080`.
+3. **Verify Kubernetes connectivity**: If using a host-native gateway, verify the K8s API is reachable by the snap and the `openshell-client-tls` secret exists in the `openshell` namespace using `kubectl`.
+4. **Identify the failure domain**: Determine if the issue is in the gateway daemon, Kubernetes API access, inference routing, or sandbox scheduling.
+5. **Inspect logs**: Run `openshell doctor logs --lines 100` to fetch recent gateway logs. Look for gRPC errors, Landlock errors, token validation failures, or TLS failures.
+6. **Correlate with system state**: If a container won't start, use `openshell doctor exec -- kubectl get pods -A` or `kubectl describe pod` to see why the sandbox pod failed to schedule or start.
+
 ## Overview
 
 `openshell gateway start` creates a Docker container running k3s with the OpenShell server deployed via Helm. The deployment stages, in order, are:

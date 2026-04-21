@@ -1,0 +1,448 @@
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+use k8s_openapi::ByteString;
+use k8s_openapi::api::core::v1::{Namespace, Secret};
+use kube::{
+    Api, Client,
+    api::{Patch, PatchParams, PostParams},
+    core::ObjectMeta,
+};
+use miette::{Context, IntoDiagnostic, Result};
+use std::collections::BTreeMap;
+use std::path::Path;
+
+use crate::constants::{
+    CLIENT_TLS_SECRET_NAME, SERVER_CLIENT_CA_SECRET_NAME, SERVER_TLS_SECRET_NAME,
+    SSH_HANDSHAKE_SECRET_NAME,
+};
+use crate::pki;
+use std::io::Read;
+
+pub async fn init_external_cluster(namespace: &str) -> Result<()> {
+    let client = Client::try_default()
+        .await
+        .into_diagnostic()
+        .context("failed to create Kubernetes client")?;
+
+    // 1. Create namespace
+    ensure_namespace(client.clone(), namespace).await?;
+
+    // 2. Reconcile PKI
+    let bundle = if let Some(existing_bundle) =
+        crate::reconcile::try_load_pki(client.clone(), namespace).await?
+    {
+        tracing::info!("Using existing PKI certificates from cluster");
+        existing_bundle
+    } else {
+        tracing::info!("Generating new PKI certificates");
+        let new_bundle = pki::generate_pki(&[]).context("failed to generate PKI")?;
+
+        // 3. Create all TLS secrets in Kubernetes
+        ensure_client_tls_secret(client.clone(), namespace, &new_bundle).await?;
+        ensure_server_tls_secret(client.clone(), namespace, &new_bundle).await?;
+        ensure_server_client_ca_secret(client.clone(), namespace, &new_bundle).await?;
+
+        // Helm will automatically roll out the StatefulSet if secrets change (if the chart has checksum annotations)
+        // or we can rely on standard Helm behavior. For now, no explicit restart is needed.
+
+        new_bundle
+    };
+
+    // 4. Create SSH handshake secret in Kubernetes
+    ensure_ssh_handshake_secret(client.clone(), namespace).await?;
+
+    // 5. Deploy agent-sandbox CRD and controller
+    let sandbox_manifest = include_str!("../../../deploy/kube/manifests/agent-sandbox.yaml");
+    tracing::info!("Applying agent-sandbox manifests");
+    crate::apply::apply_yaml(client.clone(), sandbox_manifest, namespace).await?;
+
+    // 6. Adopt legacy Server-Side Applied resources so Helm can manage them
+    tracing::info!("Adopting legacy resources for Helm");
+    crate::reconcile::adopt_legacy_resources(client.clone(), namespace).await?;
+
+    // 7. Deploy Gateway via Helm
+    tracing::info!("Deploying gateway via Helm");
+    let snap_dir = std::env::var("SNAP").unwrap_or_else(|_| ".".to_string());
+
+    // Determine the path to the helm chart depending on if we are running in the snap or locally
+    let chart_path = if snap_dir == "." {
+        "../../../deploy/helm/openshell".to_string()
+    } else {
+        format!("{}/helm-charts/openshell", snap_dir)
+    };
+
+    let helm_bin = if snap_dir == "." {
+        "helm".to_string()
+    } else {
+        format!("{}/bin/helm", snap_dir)
+    };
+
+    let gateway_tar = format!("{}/images/gateway.tar", snap_dir);
+    let supervisor_tar = format!("{}/images/supervisor.tar", snap_dir);
+    let core_rock = format!("{}/images/openshell-core.rock", snap_dir);
+
+    let (has_bundled_images, is_core_rock) = if std::path::Path::new(&core_rock).exists() {
+        (true, true)
+    } else if std::path::Path::new(&gateway_tar).exists()
+        && std::path::Path::new(&supervisor_tar).exists()
+    {
+        (true, false)
+    } else {
+        (false, false)
+    };
+
+    let mut images_loaded = false;
+    let target_registry =
+        std::env::var("OPENSHELL_REGISTRY").unwrap_or_else(|_| "localhost:32000".to_string());
+
+    if has_bundled_images {
+        tracing::info!(
+            "Found bundled Docker images/ROCKs in the snap. Attempting to push to registry at {}...",
+            target_registry
+        );
+
+        let mut push_success = false;
+
+        let snap_user_data = std::env::var("SNAP_USER_DATA").unwrap_or_else(|_| "/tmp".to_string());
+
+        if is_core_rock {
+            let target_image = format!("{}/openshell-core:local", target_registry);
+            let status = std::process::Command::new("skopeo")
+                .arg("--insecure-policy")
+                .arg("copy")
+                .arg("--dest-tls-verify=false")
+                .arg(format!("--tmpdir={}", snap_user_data))
+                .arg(format!("oci-archive:{}", core_rock))
+                .arg(format!("docker://{}", target_image))
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
+                .status();
+
+            match status {
+                Ok(s) if s.success() => {
+                    tracing::info!("Successfully pushed unified openshell-core to local registry.");
+                    push_success = true;
+                }
+                _ => {}
+            }
+        } else {
+            let target_gateway = format!("{}/openshell-gateway:dev", target_registry);
+            let target_supervisor = format!("{}/openshell-supervisor:dev", target_registry);
+
+            let s1 = std::process::Command::new("skopeo")
+                .arg("--insecure-policy")
+                .arg("copy")
+                .arg("--dest-tls-verify=false")
+                .arg(format!("--tmpdir={}", snap_user_data))
+                .arg(format!("oci-archive:{}", gateway_tar))
+                .arg(format!("docker://{}", target_gateway))
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
+                .status();
+
+            let s2 = std::process::Command::new("skopeo")
+                .arg("--insecure-policy")
+                .arg("copy")
+                .arg("--dest-tls-verify=false")
+                .arg(format!("--tmpdir={}", snap_user_data))
+                .arg(format!("oci-archive:{}", supervisor_tar))
+                .arg(format!("docker://{}", target_supervisor))
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
+                .status();
+
+            if let (Ok(s1_status), Ok(s2_status)) = (s1, s2) {
+                if s1_status.success() && s2_status.success() {
+                    tracing::info!("Successfully pushed gateway and supervisor to local registry.");
+                    push_success = true;
+                }
+            }
+        }
+
+        if push_success {
+            images_loaded = true;
+        } else {
+            tracing::warn!("Failed to push bundled images to the local registry.");
+            tracing::warn!(
+                "For local development, please run \"sudo k8s enable registry\" (or equivalent) or point openshell to your preferred registry using the OPENSHELL_REGISTRY environment variable."
+            );
+
+            // We exit early because without the local images available in the registry,
+            // the Helm deployment will fail to pull them and the pods will hang in ImagePullBackOff.
+            return Err(miette::miette!(
+                "Local registry is not available or unreachable at {}.",
+                target_registry
+            ));
+        }
+    }
+
+    let mut helm_cmd = std::process::Command::new(helm_bin);
+    helm_cmd
+        .arg("upgrade")
+        .arg("--install")
+        .arg("gateway")
+        .arg(&chart_path)
+        .arg("--namespace")
+        .arg(namespace);
+
+    if images_loaded {
+        if is_core_rock {
+            helm_cmd
+                .arg("--set")
+                .arg(format!(
+                    "image.repository={}/openshell-core",
+                    target_registry
+                ))
+                .arg("--set")
+                .arg("image.tag=local")
+                .arg("--set")
+                .arg("image.pullPolicy=Always")
+                .arg("--set")
+                .arg(format!(
+                    "supervisorImage={}/openshell-core:local",
+                    target_registry
+                ))
+                .arg("--set")
+                .arg("supervisorImagePullPolicy=Always");
+        } else {
+            helm_cmd
+                .arg("--set")
+                .arg(format!(
+                    "image.repository={}/openshell-gateway",
+                    target_registry
+                ))
+                .arg("--set")
+                .arg("image.tag=dev")
+                .arg("--set")
+                .arg("image.pullPolicy=Always")
+                .arg("--set")
+                .arg(format!(
+                    "supervisorImage={}/openshell-supervisor:dev",
+                    target_registry
+                ))
+                .arg("--set")
+                .arg("supervisorImagePullPolicy=Always");
+        }
+    }
+
+    let status = helm_cmd
+        .status()
+        .into_diagnostic()
+        .context("Failed to execute helm upgrade")?;
+
+    if !status.success() {
+        return Err(miette::miette!(
+            "Helm upgrade failed with status: {}",
+            status
+        ));
+    }
+
+    // 6. Save client TLS materials locally for CLI to connect
+    let home_dir =
+        dirs::home_dir().ok_or_else(|| miette::miette!("Could not find home directory"))?;
+    let mtls_dir = home_dir
+        .join(".config")
+        .join("openshell")
+        .join("gateways")
+        .join(namespace)
+        .join("mtls");
+    std::fs::create_dir_all(&mtls_dir).into_diagnostic()?;
+
+    std::fs::write(mtls_dir.join("tls.crt"), &bundle.client_cert_pem).into_diagnostic()?;
+    std::fs::write(mtls_dir.join("tls.key"), &bundle.client_key_pem).into_diagnostic()?;
+    std::fs::write(mtls_dir.join("ca.crt"), &bundle.ca_cert_pem).into_diagnostic()?;
+
+    // 7. Save gateway metadata and set active gateway
+    let metadata = crate::metadata::create_gateway_metadata(
+        namespace, None, 30051, // NodePort from gateway.yaml
+    );
+    crate::metadata::store_gateway_metadata(namespace, &metadata)?;
+    crate::metadata::save_active_gateway(namespace)?;
+
+    Ok(())
+}
+
+async fn ensure_namespace(client: Client, namespace: &str) -> Result<()> {
+    let namespaces: Api<Namespace> = Api::all(client);
+
+    let ns = Namespace {
+        metadata: ObjectMeta {
+            name: Some(namespace.to_string()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let params = PatchParams::apply("openshell-bootstrap").force();
+    namespaces
+        .patch(namespace, &params, &Patch::Apply(&ns))
+        .await
+        .into_diagnostic()
+        .context("failed to apply namespace")?;
+
+    Ok(())
+}
+
+async fn ensure_client_tls_secret(
+    client: Client,
+    namespace: &str,
+    bundle: &pki::PkiBundle,
+) -> Result<()> {
+    let secrets: Api<Secret> = Api::namespaced(client, namespace);
+
+    let mut data = BTreeMap::new();
+    data.insert(
+        "tls.crt".to_string(),
+        ByteString(bundle.client_cert_pem.as_bytes().to_vec()),
+    );
+    data.insert(
+        "tls.key".to_string(),
+        ByteString(bundle.client_key_pem.as_bytes().to_vec()),
+    );
+    data.insert(
+        "ca.crt".to_string(),
+        ByteString(bundle.ca_cert_pem.as_bytes().to_vec()),
+    );
+
+    let secret = Secret {
+        metadata: ObjectMeta {
+            name: Some(CLIENT_TLS_SECRET_NAME.to_string()),
+            namespace: Some(namespace.to_string()),
+            ..Default::default()
+        },
+        type_: Some("Opaque".to_string()),
+        data: Some(data),
+        ..Default::default()
+    };
+
+    let params = PatchParams::apply("openshell-bootstrap").force();
+    secrets
+        .patch(CLIENT_TLS_SECRET_NAME, &params, &Patch::Apply(&secret))
+        .await
+        .into_diagnostic()
+        .context("failed to apply client TLS secret")?;
+
+    Ok(())
+}
+
+async fn ensure_ssh_handshake_secret(client: Client, namespace: &str) -> Result<()> {
+    let secrets: Api<Secret> = Api::namespaced(client, namespace);
+
+    // Check if it already exists
+    if secrets.get(SSH_HANDSHAKE_SECRET_NAME).await.is_ok() {
+        return Ok(());
+    }
+
+    let mut buf = [0u8; 32];
+    std::fs::File::open("/dev/urandom")
+        .into_diagnostic()
+        .context("failed to open /dev/urandom")?
+        .read_exact(&mut buf)
+        .into_diagnostic()
+        .context("failed to read from /dev/urandom")?;
+
+    let mut secret_val = String::with_capacity(64);
+    for b in buf {
+        use std::fmt::Write;
+        write!(&mut secret_val, "{:02x}", b).unwrap();
+    }
+    let mut data = BTreeMap::new();
+    data.insert(
+        "secret".to_string(),
+        ByteString(secret_val.as_bytes().to_vec()),
+    );
+
+    let secret = Secret {
+        metadata: ObjectMeta {
+            name: Some(SSH_HANDSHAKE_SECRET_NAME.to_string()),
+            namespace: Some(namespace.to_string()),
+            ..Default::default()
+        },
+        type_: Some("Opaque".to_string()),
+        data: Some(data),
+        ..Default::default()
+    };
+
+    secrets
+        .create(&PostParams::default(), &secret)
+        .await
+        .into_diagnostic()
+        .context("failed to create ssh handshake secret")?;
+
+    Ok(())
+}
+
+async fn ensure_server_tls_secret(
+    client: Client,
+    namespace: &str,
+    bundle: &pki::PkiBundle,
+) -> Result<()> {
+    let secrets: Api<Secret> = Api::namespaced(client, namespace);
+    let mut data = BTreeMap::new();
+    data.insert(
+        "tls.crt".to_string(),
+        ByteString(bundle.server_cert_pem.as_bytes().to_vec()),
+    );
+    data.insert(
+        "tls.key".to_string(),
+        ByteString(bundle.server_key_pem.as_bytes().to_vec()),
+    );
+
+    let secret = Secret {
+        metadata: ObjectMeta {
+            name: Some(SERVER_TLS_SECRET_NAME.to_string()),
+            namespace: Some(namespace.to_string()),
+            ..Default::default()
+        },
+        type_: Some("kubernetes.io/tls".to_string()),
+        data: Some(data),
+        ..Default::default()
+    };
+
+    let params = PatchParams::apply("openshell-bootstrap").force();
+    secrets
+        .patch(SERVER_TLS_SECRET_NAME, &params, &Patch::Apply(&secret))
+        .await
+        .into_diagnostic()
+        .context("failed to apply server TLS secret")?;
+
+    Ok(())
+}
+
+async fn ensure_server_client_ca_secret(
+    client: Client,
+    namespace: &str,
+    bundle: &pki::PkiBundle,
+) -> Result<()> {
+    let secrets: Api<Secret> = Api::namespaced(client, namespace);
+    let mut data = BTreeMap::new();
+    data.insert(
+        "ca.crt".to_string(),
+        ByteString(bundle.ca_cert_pem.as_bytes().to_vec()),
+    );
+
+    let secret = Secret {
+        metadata: ObjectMeta {
+            name: Some(SERVER_CLIENT_CA_SECRET_NAME.to_string()),
+            namespace: Some(namespace.to_string()),
+            ..Default::default()
+        },
+        type_: Some("Opaque".to_string()),
+        data: Some(data),
+        ..Default::default()
+    };
+
+    let params = PatchParams::apply("openshell-bootstrap").force();
+    secrets
+        .patch(
+            SERVER_CLIENT_CA_SECRET_NAME,
+            &params,
+            &Patch::Apply(&secret),
+        )
+        .await
+        .into_diagnostic()
+        .context("failed to apply server client CA secret")?;
+
+    Ok(())
+}

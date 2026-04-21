@@ -1,0 +1,81 @@
+name: openshell
+title: OpenShell
+base: core24
+version: 'git'
+summary: OpenShell CLI and Gateway
+description: |
+  OpenShell is an agent manager that drives Kubernetes to run sandboxed agents.
+  This snap packages the CLI tool and the host-native gateway daemon.
+
+contact: https://github.com/NVIDIA/OpenShell/issues
+license: Apache-2.0
+issues: https://github.com/NVIDIA/OpenShell/issues
+source-code: https://github.com/NVIDIA/OpenShell
+website: https://github.com/NVIDIA/OpenShell
+donation: https://nvidia.com/
+
+grade: stable
+confinement: strict
+
+apps:
+  openshell:
+    command: bin/openshell
+    environment:
+      KUBECONFIG: $SNAP_REAL_HOME/.kube/config
+    plugs:
+      - network
+      - network-bind
+      - kube-config
+  cluster:
+    command: bin/openshell cluster
+    environment:
+      KUBECONFIG: $SNAP_REAL_HOME/.kube/config
+    plugs:
+      - network
+      - network-bind
+      - kube-config
+
+plugs:
+  kube-config:
+    interface: personal-files
+    read:
+      - $HOME/.kube/config
+
+parts:
+  workspace:
+    plugin: rust
+    source: .
+    build-packages:
+      - build-essential
+      - pkg-config
+      - libssl-dev
+      - clang
+      - libclang-dev
+      - libz3-dev
+    stage-packages:
+      - libz3-4
+      - skopeo
+      - openssh-client
+    rust-features: []
+    rust-path: ["crates/openshell-cli"]
+
+  helm-charts:
+    plugin: dump
+    source: deploy/helm
+    organize:
+      '*': helm-charts/
+
+  helm:
+    plugin: nil
+    build-packages:
+      - wget
+    override-build: |
+      wget https://get.helm.sh/helm-v3.14.3-linux-amd64.tar.gz -O helm.tar.gz
+      tar -xzf helm.tar.gz linux-amd64/helm
+      install -D -m 755 linux-amd64/helm $CRAFT_PART_INSTALL/bin/helm
+
+  images:
+    plugin: dump
+    source: snap/local-images
+    organize:
+      '*': images/

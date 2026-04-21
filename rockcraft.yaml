@@ -1,0 +1,36 @@
+name: openshell-core
+base: ubuntu@24.04
+version: 'local'
+summary: OpenShell Core
+description: OpenShell Gateway and Supervisor
+
+platforms:
+  amd64:
+
+parts:
+  workspace:
+    plugin: rust
+    source: .
+    build-packages:
+      - build-essential
+      - pkg-config
+      - libssl-dev
+      - clang
+      - libclang-dev
+      - libz3-dev
+    stage-packages:
+      - libz3-4
+      - ca-certificates
+    rust-features: []
+    rust-path: 
+      - "crates/openshell-server"
+      - "crates/openshell-sandbox"
+    organize:
+      bin/openshell-gateway: usr/local/bin/openshell-gateway
+      bin/openshell-sandbox: usr/local/bin/openshell-sandbox
+
+  migrations:
+    plugin: dump
+    source: crates/openshell-server/migrations
+    organize:
+      '*': build/crates/openshell-server/migrations/

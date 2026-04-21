@@ -438,6 +438,16 @@ enum Commands {
     },
 
     // ===================================================================
+    // CLUSTER COMMANDS
+    // ===================================================================
+    /// Manage the OpenShell cluster deployment.
+    #[command(help_template = SUBCOMMAND_HELP_TEMPLATE)]
+    Cluster {
+        #[command(subcommand)]
+        command: Option<ClusterCommands>,
+    },
+
+    // ===================================================================
     // GATEWAY COMMANDS
     // ===================================================================
     /// Manage the gateway lifecycle.
@@ -596,6 +606,17 @@ fn normalize_completion_script(output: Vec<u8>, executable: &std::path::Path) ->
     let script = String::from_utf8(output)
         .map_err(|e| miette::miette!("generated completions were not valid UTF-8: {e}"))?;
     Ok(script.replace(executable.to_string_lossy().as_ref(), "openshell"))
+}
+
+#[derive(Subcommand, Debug)]
+enum ClusterCommands {
+    /// Initialize the OpenShell components in the current Kubernetes cluster.
+    #[command(help_template = LEAF_HELP_TEMPLATE, next_help_heading = "FLAGS")]
+    Init {
+        /// The namespace to deploy into.
+        #[arg(long, default_value = "openshell")]
+        namespace: String,
+    },
 }
 
 #[derive(Clone, Debug, ValueEnum)]
@@ -1686,6 +1707,25 @@ async fn main() -> Result<()> {
         .init();
 
     match cli.command {
+        // -----------------------------------------------------------
+        // Cluster commands
+        // -----------------------------------------------------------
+        Some(Commands::Cluster {
+            command: Some(command),
+        }) => match command {
+            ClusterCommands::Init { namespace } => {
+                openshell_bootstrap::k8s_init::init_external_cluster(&namespace).await?;
+                println!("Cluster initialized successfully.");
+            }
+        },
+        Some(Commands::Cluster { command: None }) => {
+            Cli::command()
+                .find_subcommand_mut("cluster")
+                .unwrap()
+                .print_help()
+                .map_err(|e| miette::miette!(e))?;
+        }
+
         // -----------------------------------------------------------
         // Gateway commands (was `cluster` / `cluster admin`)
         // -----------------------------------------------------------

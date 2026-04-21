@@ -308,6 +308,8 @@ impl KubernetesComputeDriver {
             sandbox.spec.as_ref(),
             &self.config.default_image,
             &self.config.image_pull_policy,
+            &self.config.supervisor_image,
+            &self.config.supervisor_image_pull_policy,
             &sandbox.id,
             &sandbox.name,
             &self.config.grpc_endpoint,
@@ -705,20 +707,14 @@ const SUPERVISOR_MOUNT_PATH: &str = "/opt/openshell/bin";
 /// Name of the volume used to side-load the supervisor binary.
 const SUPERVISOR_VOLUME_NAME: &str = "openshell-supervisor-bin";
 
-/// Path on the k3s node filesystem where the supervisor binary lives.
-/// This is baked into the cluster image at build time and can be updated
-/// via `docker cp` during local development.
-const SUPERVISOR_HOST_PATH: &str = "/opt/openshell/bin";
+/// Name of the init container that injects the supervisor binary.
+const SUPERVISOR_INIT_CONTAINER_NAME: &str = "openshell-supervisor-init";
 
-/// Build the hostPath volume definition that exposes the supervisor binary
-/// from the k3s node filesystem.
+/// Build the emptyDir volume definition that will host the supervisor binary.
 fn supervisor_volume() -> serde_json::Value {
     serde_json::json!({
         "name": SUPERVISOR_VOLUME_NAME,
-        "hostPath": {
-            "path": SUPERVISOR_HOST_PATH,
-            "type": "DirectoryOrCreate"
-        }
+        "emptyDir": {}
     })
 }
 
@@ -733,19 +729,20 @@ fn supervisor_volume_mount() -> serde_json::Value {
 
 /// Apply supervisor side-load transforms to an already-built pod template JSON.
 ///
-/// This injects the hostPath volume, volume mount, command override, and
-/// `runAsUser: 0` into the pod template, targeting the `agent` container
-/// (or the first container if no `agent` is found).
-///
-/// The supervisor binary is always side-loaded from the k3s node filesystem
-/// via a read-only hostPath volume. No init container is needed.
+/// This injects the emptyDir volume, an initContainer to populate it from the
+/// supervisor image, a volume mount for the `agent` container, a command override,
+/// and `runAsUser: 0`.
 ///
 /// The `runAsUser: 0` override ensures the supervisor binary runs as root
 /// regardless of the image's `USER` directive. The supervisor needs root for
 /// network namespace creation, proxy setup, and Landlock/seccomp configuration.
 /// It drops to the appropriate non-root user for child processes via the
 /// policy's `run_as_user`/`run_as_group`.
-fn apply_supervisor_sideload(pod_template: &mut serde_json::Value) {
+fn apply_supervisor_sideload(
+    pod_template: &mut serde_json::Value,
+    supervisor_image: &str,
+    supervisor_image_pull_policy: &str,
+) {
     let Some(spec) = pod_template.get_mut("spec").and_then(|v| v.as_object_mut()) else {
         return;
     };
@@ -800,6 +797,33 @@ fn apply_supervisor_sideload(pod_template: &mut serde_json::Value) {
         if let Some(volume_mounts) = volume_mounts {
             volume_mounts.push(supervisor_volume_mount());
         }
+    }
+
+    // 3. Add the initContainer to inject the supervisor binary
+    let init_containers = spec
+        .entry("initContainers")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut();
+
+    if let Some(init_containers) = init_containers {
+        let mut init_container = serde_json::json!({
+            "name": SUPERVISOR_INIT_CONTAINER_NAME,
+            "image": supervisor_image,
+            "command": ["cp", "/usr/local/bin/openshell-sandbox", format!("{}/openshell-sandbox", SUPERVISOR_MOUNT_PATH)],
+            "volumeMounts": [{
+                "name": SUPERVISOR_VOLUME_NAME,
+                "mountPath": SUPERVISOR_MOUNT_PATH,
+            }],
+        });
+        if !supervisor_image_pull_policy.is_empty() {
+            if let Some(ic) = init_container.as_object_mut() {
+                ic.insert(
+                    "imagePullPolicy".to_string(),
+                    serde_json::json!(supervisor_image_pull_policy),
+                );
+            }
+        }
+        init_containers.push(init_container);
     }
 }
 
@@ -922,6 +946,8 @@ fn sandbox_to_k8s_spec(
     spec: Option<&SandboxSpec>,
     default_image: &str,
     image_pull_policy: &str,
+    supervisor_image: &str,
+    supervisor_image_pull_policy: &str,
     sandbox_id: &str,
     sandbox_name: &str,
     grpc_endpoint: &str,
@@ -962,6 +988,8 @@ fn sandbox_to_k8s_spec(
                     spec.gpu,
                     default_image,
                     image_pull_policy,
+                    supervisor_image,
+                    supervisor_image_pull_policy,
                     sandbox_id,
                     sandbox_name,
                     grpc_endpoint,
@@ -1008,6 +1036,8 @@ fn sandbox_to_k8s_spec(
                 spec.as_ref().is_some_and(|s| s.gpu),
                 default_image,
                 image_pull_policy,
+                supervisor_image,
+                supervisor_image_pull_policy,
                 sandbox_id,
                 sandbox_name,
                 grpc_endpoint,
@@ -1033,6 +1063,8 @@ fn sandbox_template_to_k8s(
     gpu: bool,
     default_image: &str,
     image_pull_policy: &str,
+    supervisor_image: &str,
+    supervisor_image_pull_policy: &str,
     sandbox_id: &str,
     sandbox_name: &str,
     grpc_endpoint: &str,
@@ -1044,8 +1076,8 @@ fn sandbox_template_to_k8s(
     host_gateway_ip: &str,
     inject_workspace: bool,
 ) -> serde_json::Value {
-    // The supervisor binary is always side-loaded from the node filesystem
-    // via a hostPath volume, regardless of which sandbox image is used.
+    // The supervisor binary is delivered via an init container into an emptyDir
+    // volume, regardless of which sandbox image is used.
 
     let mut metadata = serde_json::Map::new();
     if !template.labels.is_empty() {
@@ -1108,6 +1140,10 @@ fn sandbox_template_to_k8s(
         serde_json::json!({
             "capabilities": {
                 "add": ["SYS_ADMIN", "NET_ADMIN", "SYS_PTRACE", "SYSLOG"]
+            },
+            "appArmorProfile": {
+                "type": "Localhost",
+                "localhostProfile": "openshell-supervisor"
             }
         }),
     );
@@ -1164,7 +1200,11 @@ fn sandbox_template_to_k8s(
     let mut result = serde_json::Value::Object(template_value);
 
     // Always side-load the supervisor binary from the node filesystem
-    apply_supervisor_sideload(&mut result);
+    apply_supervisor_sideload(
+        &mut result,
+        supervisor_image,
+        supervisor_image_pull_policy,
+    );
 
     // Inject workspace persistence (init container + PVC volume mount) so
     // that /sandbox data survives pod rescheduling.  Skipped when the user

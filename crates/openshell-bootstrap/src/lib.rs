@@ -6,13 +6,16 @@ pub mod edge_token;
 pub mod errors;
 pub mod image;
 
+pub mod apply;
 pub mod constants;
 mod docker;
+pub mod k8s_init;
 mod metadata;
 pub mod mtls;
 pub mod paths;
 pub mod pki;
 pub(crate) mod push;
+pub mod reconcile;
 mod runtime;
 
 /// Shared lock for tests that mutate the process-global `XDG_CONFIG_HOME`
