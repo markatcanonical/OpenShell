@@ -99,10 +99,6 @@ struct Args {
     )]
     ssh_connect_path: String,
 
-    /// SSH port inside sandbox pods.
-    #[arg(long, env = "OPENSHELL_SANDBOX_SSH_PORT", default_value_t = 2222)]
-    sandbox_ssh_port: u16,
-
     /// Shared secret for gateway-to-sandbox SSH handshake.
     #[arg(long, env = "OPENSHELL_SSH_HANDSHAKE_SECRET")]
     ssh_handshake_secret: Option<String>,
@@ -129,9 +125,13 @@ struct Args {
     )]
     vm_driver_state_dir: PathBuf,
 
-    /// VM compute-driver binary spawned by the gateway.
-    #[arg(long, env = "OPENSHELL_VM_COMPUTE_DRIVER_BIN")]
-    vm_compute_driver_bin: Option<PathBuf>,
+    /// Directory searched for compute-driver binaries (e.g.
+    /// `openshell-driver-vm`) when an explicit binary override isn't
+    /// configured. When unset, the gateway searches
+    /// `$HOME/.local/libexec/openshell`, `/usr/local/libexec/openshell`,
+    /// `/usr/local/libexec`, then a sibling of the gateway binary.
+    #[arg(long, env = "OPENSHELL_DRIVER_DIR")]
+    driver_dir: Option<PathBuf>,
 
     /// libkrun log level used by the VM helper.
     #[arg(
@@ -241,7 +241,6 @@ async fn run_from_args(args: Args) -> Result<()> {
         .with_ssh_gateway_host(args.ssh_gateway_host)
         .with_ssh_gateway_port(args.ssh_gateway_port)
         .with_ssh_connect_path(args.ssh_connect_path)
-        .with_sandbox_ssh_port(args.sandbox_ssh_port)
         .with_ssh_handshake_skew_secs(args.ssh_handshake_skew_secs);
 
     if let Some(image) = args.sandbox_image {
@@ -274,7 +273,7 @@ async fn run_from_args(args: Args) -> Result<()> {
 
     let vm_config = VmComputeConfig {
         state_dir: args.vm_driver_state_dir,
-        compute_driver_bin: args.vm_compute_driver_bin,
+        driver_dir: args.driver_dir,
         krun_log_level: args.vm_krun_log_level,
         vcpus: args.vm_vcpus,
         mem_mib: args.vm_mem_mib,

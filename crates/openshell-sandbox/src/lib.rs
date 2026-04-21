@@ -21,6 +21,7 @@ pub mod proxy;
 mod sandbox;
 mod secrets;
 mod ssh;
+mod supervisor_session;
 
 use miette::{IntoDiagnostic, Result};
 #[cfg(target_os = "linux")]
@@ -97,6 +98,7 @@ use crate::proxy::ProxyHandle;
 use crate::sandbox::linux::netns::NetworkNamespace;
 use crate::secrets::SecretResolver;
 pub use process::{ProcessHandle, ProcessStatus};
+pub use sandbox::apply_supervisor_startup_hardening;
 
 /// Default interval (seconds) for re-fetching the inference route bundle from
 /// the gateway in cluster mode. Override at runtime with the
@@ -208,7 +210,7 @@ pub async fn run_sandbox(
     openshell_endpoint: Option<String>,
     policy_rules: Option<String>,
     policy_data: Option<String>,
-    ssh_listen_addr: Option<String>,
+    ssh_socket_path: Option<String>,
     ssh_handshake_secret: Option<String>,
     ssh_handshake_skew_secs: u64,
     _health_check: bool,
@@ -416,6 +418,11 @@ pub async fn run_sandbox(
     #[allow(clippy::no_effect_underscore_binding)]
     let _netns: Option<()> = None;
 
+    // Install the supervisor seccomp prelude after privileged startup helpers
+    // (network namespace setup, iptables probes) complete, but before the SSH
+    // listener and workload process are exposed.
+    apply_supervisor_startup_hardening()?;
+
     // Shared PID: set after process spawn so the proxy can look up
     // the entrypoint process's /proc/net/tcp for identity binding.
     let entrypoint_pid = Arc::new(AtomicU32::new(0));
@@ -603,18 +610,12 @@ pub async fn run_sandbox(
         }
     });
 
-    if let Some(listen_addr) = ssh_listen_addr {
-        let addr: SocketAddr = listen_addr.parse().into_diagnostic()?;
+    let ssh_socket_path: Option<std::path::PathBuf> = ssh_socket_path.map(std::path::PathBuf::from);
+    if let Some(listen_path) = ssh_socket_path.clone() {
         let policy_clone = policy.clone();
         let workdir_clone = workdir.clone();
-        let secret = ssh_handshake_secret
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                miette::miette!(
-                    "OPENSHELL_SSH_HANDSHAKE_SECRET is required when SSH is enabled.\n\
-                     Set --ssh-handshake-secret or the OPENSHELL_SSH_HANDSHAKE_SECRET env var."
-                )
-            })?;
+        let _ = ssh_handshake_secret; // retained in the signature for compat; unused
+        let _ = ssh_handshake_skew_secs;
         let proxy_url = ssh_proxy_url;
         let netns_fd = ssh_netns_fd;
         let ca_paths = ca_file_paths.clone();
@@ -624,12 +625,10 @@ pub async fn run_sandbox(
 
         tokio::spawn(async move {
             if let Err(err) = ssh::run_ssh_server(
-                addr,
+                listen_path,
                 ssh_ready_tx,
                 policy_clone,
                 workdir_clone,
-                secret,
-                ssh_handshake_skew_secs,
                 netns_fd,
                 proxy_url,
                 ca_paths,
@@ -676,6 +675,18 @@ pub async fn run_sandbox(
                 ));
             }
         }
+    }
+
+    // Spawn the persistent supervisor session if we have a gateway endpoint
+    // and sandbox identity. The session provides relay channels for SSH
+    // connect and ExecSandbox through the gateway.
+    if let (Some(endpoint), Some(id), Some(socket)) = (
+        openshell_endpoint.as_ref(),
+        sandbox_id.as_ref(),
+        ssh_socket_path.as_ref(),
+    ) {
+        supervisor_session::spawn(endpoint.clone(), id.clone(), socket.clone());
+        info!("supervisor session task spawned");
     }
 
     #[cfg(target_os = "linux")]

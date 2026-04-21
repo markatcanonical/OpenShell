@@ -22,8 +22,11 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tower::ServiceExt;
+use tower::{ServiceBuilder, ServiceExt};
+use tower_http::trace::TraceLayer;
+use tracing::Span;
 
 use crate::{OpenShellService, ServerState, http_router, inference::InferenceService};
 
@@ -60,9 +63,36 @@ impl MultiplexService {
         let grpc_service = GrpcRouter::new(openshell, inference);
         let http_service = http_router(self.state.clone());
 
+        let grpc_service = ServiceBuilder::new()
+            .layer(
+                TraceLayer::new_for_http()
+                    .make_span_with(make_request_span)
+                    .on_request(())
+                    .on_response(log_response),
+            )
+            .service(grpc_service);
+        let http_service = ServiceBuilder::new()
+            .layer(
+                TraceLayer::new_for_http()
+                    .make_span_with(make_request_span)
+                    .on_request(())
+                    .on_response(log_response),
+            )
+            .service(http_service);
+
         let service = MultiplexedService::new(grpc_service, http_service);
 
-        Builder::new(TokioExecutor::new())
+        // HTTP/2 adaptive flow control. Default windows (64 KiB / 64 KiB)
+        // throttle the RelayStream data plane to ~500 Mbps on LAN. Instead
+        // of committing to a fixed large window (which worst-case pins
+        // `max_concurrent_streams × stream_window` bytes per connection),
+        // we let hyper/h2 auto-size based on the measured bandwidth-delay
+        // product. Idle streams stay tiny; busy bulk streams grow as
+        // needed. Overrides any fixed initial_*_window_size settings.
+        let mut builder = Builder::new(TokioExecutor::new());
+        builder.http2().adaptive_window(true);
+
+        builder
             .serve_connection_with_upgrades(TokioIo::new(stream), service)
             .await?;
 
@@ -201,6 +231,31 @@ where
             })
         }
     }
+}
+
+fn make_request_span<B>(req: &Request<B>) -> Span {
+    let path = req.uri().path();
+    if matches!(path, "/health" | "/healthz" | "/readyz") {
+        tracing::debug_span!(
+            "request",
+            method = %req.method(),
+            path,
+        )
+    } else {
+        tracing::info_span!(
+            "request",
+            method = %req.method(),
+            path,
+        )
+    }
+}
+
+fn log_response<B>(res: &Response<B>, latency: Duration, _span: &Span) {
+    tracing::info!(
+        status = res.status().as_u16(),
+        latency_ms = latency.as_millis(),
+        "response"
+    );
 }
 
 /// Boxed body type for uniform handling.
