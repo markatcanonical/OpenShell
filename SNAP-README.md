@@ -2,6 +2,19 @@
 
 This branch is a PoC of a simpler, more secure and more easily managed OpenShell install and distribution experience.
 
+The goal is this:
+
+```
+sudo snap install k8s --classic
+sudo k8s bootstrap
+sudo snap install registry openshell
+
+openshell cluster init --registry localhost:5000
+openshell sandbox create
+```
+
+This could be a `curl | bash` script but we don't publish those as a recommended practice :)
+
 ## Build it
 
 You need `rockcraft` and `snapcraft` to build the Docker image and snap respectively.
