@@ -35,6 +35,7 @@ __pycache__/
 openshell_*.snap
 openshell-core_*.rock
 develop-eggs/
+snap/local-images/
 dist/
 downloads/
 eggs/

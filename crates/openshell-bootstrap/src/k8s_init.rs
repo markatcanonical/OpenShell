@@ -19,7 +19,7 @@ use crate::constants::{
 use crate::pki;
 use std::io::Read;
 
-pub async fn init_external_cluster(namespace: &str) -> Result<()> {
+pub async fn init_external_cluster(namespace: &str, registry: &str) -> Result<()> {
     let client = Client::try_default()
         .await
         .into_diagnostic()
@@ -93,8 +93,7 @@ pub async fn init_external_cluster(namespace: &str) -> Result<()> {
     };
 
     let mut images_loaded = false;
-    let target_registry =
-        std::env::var("OPENSHELL_REGISTRY").unwrap_or_else(|_| "localhost:32000".to_string());
+    let target_registry = registry;
 
     if has_bundled_images {
         tracing::info!(

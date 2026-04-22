@@ -616,6 +616,10 @@ enum ClusterCommands {
         /// The namespace to deploy into.
         #[arg(long, default_value = "openshell")]
         namespace: String,
+
+        /// The destination registry for stashing rocks.
+        #[arg(long, required = true)]
+        registry: String,
     },
 }
 
@@ -1717,8 +1721,8 @@ async fn main() -> Result<()> {
         Some(Commands::Cluster {
             command: Some(command),
         }) => match command {
-            ClusterCommands::Init { namespace } => {
-                openshell_bootstrap::k8s_init::init_external_cluster(&namespace).await?;
+            ClusterCommands::Init { namespace, registry } => {
+                openshell_bootstrap::k8s_init::init_external_cluster(&namespace, &registry).await?;
                 println!("Cluster initialized successfully.");
             }
         },
