@@ -6,6 +6,7 @@
 set -euo pipefail
 
 echo "==> Building OpenShell Core ROCK (Gateway + Supervisor)..."
+rm openshell-core_*_*.rock
 rockcraft pack
 
 echo "==> Exporting ROCK to snap/local-images..."

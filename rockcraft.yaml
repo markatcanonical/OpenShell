@@ -1,6 +1,7 @@
 name: openshell-core
 base: ubuntu@24.04
-version: 'local'
+adopt-info: workspace
+version: git
 summary: OpenShell Core
 description: OpenShell Gateway and Supervisor
 
@@ -28,6 +29,11 @@ parts:
     organize:
       bin/openshell-gateway: usr/local/bin/openshell-gateway
       bin/openshell-sandbox: usr/local/bin/openshell-sandbox
+    override-pull: |
+      craftctl default
+      # Set version to git describe or short commit hash
+      craftctl set version=$(git describe --tags --abbrev=10 || git rev-parse --short HEAD)
+
 
   migrations:
     plugin: dump
