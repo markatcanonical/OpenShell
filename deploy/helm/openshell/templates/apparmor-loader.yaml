@@ -17,26 +17,45 @@ data:
       # Allow all network operations
       network,
       
-      # Allow capabilities (the container restricts this via securityContext anyway)
-      capability,
+      # Explicit capabilities required by the supervisor
+      capability sys_admin,
+      capability net_admin,
+      capability sys_ptrace,
+      capability syslog,
+      capability dac_override,
+      capability dac_read_search,
+      capability chown,
+      capability setuid,
+      capability setgid,
 
       # Allow file read/write (the container mount namespace restricts host access)
       file,
 
+      # Explicitly deny mounting over critical system boundaries
+      deny mount -> /proc/**,
+      deny mount -> /sys/**,
+      deny mount -> /dev/**,
+
+      # Allow namespace isolation mounts required by iproute2 (make-rslave on /)
+      mount options=(rw, rslave) -> /,
+
       # Allow bind mounting the network namespace
-      mount options=(rw, bind) /run/netns/** -> /run/netns/**,
+      mount options=(rw, bind) -> /run/netns/**,
+      mount options=(rw, rbind) /run/netns/ -> /run/netns/,
+      mount options=(rw, rbind) /run/netns -> /run/netns,
       
-      # Allow shared mount propagation
-      mount options=(rw, make-shared) -> /run/netns/,
+      # Allow shared mount propagation (ip netns uses MS_SHARED | MS_REC, which is make-rshared/rshared)
+      mount options=(rw, rshared) -> /run/netns,
+      mount options=(rw, rshared) -> /run/netns/,
 
-      # Deny all other mounts to prevent host breakout
-      deny mount,
+      # Allow namespace isolation umounts/mounts
+      umount /sys/,
+      umount /run/netns/**,
+      mount fstype=sysfs -> /sys/,
 
-      # Allow ptrace
-      ptrace,
-
-      # Allow signals
-      signal,
+      # Restrict signals and ptrace to own profile
+      signal (send, receive) peer=@{profile_name},
+      ptrace (trace, tracedby) peer=@{profile_name},
     }
 ---
 apiVersion: apps/v1
@@ -63,6 +82,7 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             privileged: true
+            runAsUser: 0
           command:
             - sh
             - -c
