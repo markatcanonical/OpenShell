@@ -182,6 +182,25 @@ pub async fn run_server(
 
     info!(address = %config.bind_address, "Server listening");
 
+    // Bind the unauthenticated health endpoint on a separate port when configured.
+    if let Some(health_bind_address) = config.health_bind_address {
+        let health_listener = TcpListener::bind(health_bind_address).await.map_err(|e| {
+            Error::transport(format!(
+                "failed to bind health port {}: {e}",
+                health_bind_address
+            ))
+        })?;
+        info!(address = %health_bind_address, "Health server listening");
+        tokio::spawn(async move {
+            if let Err(e) = axum::serve(health_listener, health_router().into_make_service()).await
+            {
+                error!("Health server error: {e}");
+            }
+        });
+    } else {
+        info!("Health server disabled");
+    }
+
     // Build TLS acceptor when TLS is configured; otherwise serve plaintext.
     let tls_acceptor = if let Some(tls) = &config.tls {
         Some(TlsAcceptor::from_files(

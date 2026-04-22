@@ -57,6 +57,12 @@ pub struct Config {
     #[serde(default = "default_bind_address")]
     pub bind_address: SocketAddr,
 
+    /// Address to bind the unauthenticated health endpoint to.
+    ///
+    /// When `None`, the dedicated health listener is disabled.
+    #[serde(default)]
+    pub health_bind_address: Option<SocketAddr>,
+
     /// Log level (trace, debug, info, warn, error).
     #[serde(default = "default_log_level")]
     pub log_level: String,
@@ -184,6 +190,7 @@ impl Config {
     pub fn new(tls: Option<TlsConfig>) -> Self {
         Self {
             bind_address: default_bind_address(),
+            health_bind_address: None,
             log_level: default_log_level(),
             tls,
             database_url: String::new(),
@@ -210,6 +217,12 @@ impl Config {
     #[must_use]
     pub const fn with_bind_address(mut self, addr: SocketAddr) -> Self {
         self.bind_address = addr;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_health_bind_address(mut self, addr: SocketAddr) -> Self {
+        self.health_bind_address = Some(addr);
         self
     }
 
@@ -383,6 +396,7 @@ const fn default_ssh_session_ttl_secs() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{ComputeDriverKind, Config};
+    use std::net::SocketAddr;
 
     #[test]
     fn compute_driver_kind_parses_supported_values() {
@@ -412,5 +426,18 @@ mod tests {
             Config::new(None).compute_drivers,
             vec![ComputeDriverKind::Kubernetes]
         );
+    }
+
+    #[test]
+    fn config_new_disables_health_bind_by_default() {
+        let cfg = Config::new(None);
+        assert!(cfg.health_bind_address.is_none());
+    }
+
+    #[test]
+    fn config_with_health_bind_address_sets_address() {
+        let addr: SocketAddr = "0.0.0.0:9090".parse().expect("valid address");
+        let cfg = Config::new(None).with_health_bind_address(addr);
+        assert_eq!(cfg.health_bind_address, Some(addr));
     }
 }

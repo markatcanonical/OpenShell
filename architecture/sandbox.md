@@ -452,7 +452,7 @@ Kernel-level error behavior (e.g., Landlock ABI unavailable) depends on `Landloc
 - `BestEffort`: Log a warning and continue without filesystem isolation
 - `HardRequirement`: Return a fatal error, aborting the sandbox
 
-**Baseline path filtering**: System-injected baseline paths (e.g., `/app`) are pre-filtered by `enrich_proto_baseline_paths()` / `enrich_sandbox_baseline_paths()` using `Path::exists()` before they reach Landlock. User-specified paths are not pre-filtered -- they are evaluated at Landlock apply time so misconfigurations surface as warnings or errors.
+**Baseline path filtering**: System-injected baseline paths (e.g., `/app`) are pre-filtered by `enrich_proto_baseline_paths()` / `enrich_sandbox_baseline_paths()` using `Path::exists()` before they reach Landlock. If a baseline `read_write` path is already present in `read_only`, enrichment skips the promotion so explicit policy intent is preserved. User-specified paths are not pre-filtered -- they are evaluated at Landlock apply time so misconfigurations surface as warnings or errors.
 
 ### Seccomp syscall filtering
 
@@ -808,7 +808,7 @@ Every CONNECT request to a non-`inference.local` target produces an `info!()` lo
 
 ### SSRF protection (internal IP rejection)
 
-After OPA allows a connection, the proxy resolves DNS and rejects any host that resolves to an internal IP address (loopback, RFC 1918 private, link-local, or IPv4-mapped IPv6 equivalents). This defense-in-depth measure prevents SSRF attacks where an allowed hostname is pointed at internal infrastructure. The check is implemented by `resolve_and_reject_internal()` which calls `tokio::net::lookup_host()` and validates every resolved address via `is_internal_ip()`. If any resolved IP is internal, the connection receives a `403 Forbidden` response and a warning is logged. See [SSRF Protection](security-policy.md#ssrf-protection-internal-ip-rejection) for the full list of blocked ranges.
+After OPA allows a connection, the proxy resolves the host using the sandbox's `/etc/hosts` first on Linux (via `/proc/<pid>/root/etc/hosts`, which picks up Kubernetes `hostAliases`), then falls back to DNS. It rejects any host that resolves to an internal IP address (loopback, RFC 1918 private, link-local, or IPv4-mapped IPv6 equivalents). This defense-in-depth measure prevents SSRF attacks where an allowed hostname is pointed at internal infrastructure. The check is implemented by `resolve_and_reject_internal()`, which validates every resolved address via `is_internal_ip()`. If any resolved IP is internal, the connection receives a `403 Forbidden` response and a warning is logged. `hostAliases` only affect name resolution — private destinations still need `allowed_ips`. See [SSRF Protection](security-policy.md#ssrf-protection-internal-ip-rejection) for the full list of blocked ranges.
 
 IP classification helpers (`is_always_blocked_ip`, `is_always_blocked_net`, `is_internal_ip`) are shared from `openshell_core::net`. The `parse_allowed_ips` function rejects entries overlapping always-blocked ranges (loopback, link-local, unspecified) at load time with a hard error, and `implicit_allowed_ips_for_ip_host` skips synthesis for always-blocked literal IP hosts. The mechanistic mapper filters proposals for always-blocked destinations to prevent infinite TUI notification loops.
 
