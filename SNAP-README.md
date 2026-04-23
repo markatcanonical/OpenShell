@@ -52,6 +52,7 @@ You need K8s:
 sudo snap install k8s --classic --channel=1.35-classic
 sudo k8s bootstrap
 sudo k8s status --wait-ready
+mkdir $HOME/.kube
 sudo cp /etc/kubernetes/admin.conf $HOME/.kube/config
 sudo chown $USER:$USER .kube/config
 ```
@@ -59,7 +60,7 @@ sudo chown $USER:$USER .kube/config
 You should see a clean running k8s. If you want, test it out:
 
 ```
-sudo snap install kubectl --channel=1.35
+sudo snap install kubectl --classic --channel=1.35
 kubectl get nodes
 ```
 
