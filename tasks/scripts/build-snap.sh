@@ -5,28 +5,12 @@
 
 set -euo pipefail
 
-echo "==> Preparing Rockcraft configuration for core..."
-if [ -f "rockcraft.yaml" ]; then
-    echo "ERROR: rockcraft.yaml already exists in the project root. Please remove or rename it."
+# Ensure the rock is staged before building the snap
+if [ ! -f snap/local-images/openshell-core.rock ]; then
+    echo "ERROR: openshell-core.rock not found in snap/local-images/"
+    echo "Please run ./tasks/scripts/build-rock.sh first."
     exit 1
 fi
-
-restore_rockcraft() {
-    rm -f rockcraft.yaml
-}
-trap restore_rockcraft EXIT
-
-cp rockcraft-openshell-core.yaml rockcraft.yaml
-
-echo "==> Building OpenShell Core ROCK (Gateway + Supervisor)..."
-rm -f openshell-core_*_*.rock
-rockcraft pack
-rm -f rockcraft.yaml
-trap - EXIT
-
-echo "==> Exporting ROCK to snap/local-images..."
-mkdir -p snap/local-images
-cp openshell-core*.rock snap/local-images/openshell-core.rock
 
 echo "==> Building Snap package..."
 rm -f openshell_*_*.snap

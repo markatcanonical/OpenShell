@@ -269,12 +269,10 @@ pub fn run_vm(config: &VmLaunchConfig) -> Result<(), String> {
             if let Some(uid) = config.run_as_uid {
                 unsafe {
                     if libc::setresgid(uid, uid, uid) != 0 {
-                        eprintln!("libkrun worker: setresgid failed: {}", std::io::Error::last_os_error());
-                        std::process::exit(1);
+                        eprintln!("libkrun worker: warning: setresgid failed ({}). If running in a strict snap, this is expected as AppArmor blocks capability setgid. The VM worker will run as root.", std::io::Error::last_os_error());
                     }
                     if libc::setresuid(uid, uid, uid) != 0 {
-                        eprintln!("libkrun worker: setresuid failed: {}", std::io::Error::last_os_error());
-                        std::process::exit(1);
+                        eprintln!("libkrun worker: warning: setresuid failed ({}). If running in a strict snap, this is expected as AppArmor blocks capability setuid. The VM worker will run as root.", std::io::Error::last_os_error());
                     }
                 }
             }
@@ -592,7 +590,9 @@ fn hash_path_id(path: &Path) -> String {
 }
 
 fn secure_socket_base(subdir: &str) -> Result<PathBuf, String> {
-    let base = if let Some(xdg) = std::env::var_os("XDG_RUNTIME_DIR") {
+    let base = if let Some(snap_common) = std::env::var_os("SNAP_COMMON") {
+        PathBuf::from(snap_common)
+    } else if let Some(xdg) = std::env::var_os("XDG_RUNTIME_DIR") {
         PathBuf::from(xdg)
     } else {
         let mut base = PathBuf::from("/tmp");

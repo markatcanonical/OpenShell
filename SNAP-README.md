@@ -99,5 +99,6 @@ openshell sandbox create
  - tests
  - figure out how best to provide certificates
  - figure out what to do with Alpine VM rootfs - chiselled rock?
+ - do better than process-control
  - documentation!
 

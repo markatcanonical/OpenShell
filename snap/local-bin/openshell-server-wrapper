@@ -10,15 +10,7 @@ if [ "$DRIVER" = "k8s" ]; then
     echo "Gateway is configured to run on K8s. Exiting local daemon gracefully."
     # Exit 0 so snapd doesn't consider it a failure and restart loop it if restart-condition is on-failure
     # By default, daemons with `daemon: simple` restart `on-failure`. Exiting 0 stops it cleanly.
-    while true; do
-        # We sleep forever because if we exit 0, snapd might still report the service as inactive.
-        # But wait, exiting 0 is fine, the service just becomes inactive. If we want it to stay 'active', we sleep.
-        # Let's just exit 0. Wait, actually `restart-condition` defaults to `on-failure`, so `exit 0` stops it.
-        # Let's use `snapctl stop openshell.server` or just sleep to keep it alive doing nothing?
-        # A simple sleep loop is safest to prevent snapd from thinking the service died unexpectedly if we care about it being "active".
-        # But actually `exit 0` is the correct way to say "I have gracefully stopped".
-        exit 0
-    done
+    exit 0
 fi
 
 # Ensure UDS dir exists
