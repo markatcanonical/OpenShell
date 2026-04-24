@@ -24,6 +24,7 @@ apps:
     environment:
       KUBECONFIG: $SNAP_REAL_HOME/.kube/config
     plugs:
+      - home
       - network
       - network-bind
       - kube-config
