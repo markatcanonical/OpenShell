@@ -7,6 +7,7 @@ description: OpenShell Gateway and Supervisor
 
 platforms:
   amd64:
+  arm64:
 
 parts:
   workspace:
