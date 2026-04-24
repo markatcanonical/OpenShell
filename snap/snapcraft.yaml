@@ -76,10 +76,12 @@ parts:
     organize:
       '*': helm-charts/
 
-  helm:
+  helm-binary:
     plugin: nil
     stage-snaps:
       - helm/3.7/stable
+    override-build: |
+      mkdir -p $CRAFT_PART_INSTALL/bin
     organize:
       helm: bin/helm
     stage:
