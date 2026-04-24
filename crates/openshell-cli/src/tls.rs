@@ -249,6 +249,19 @@ async fn edge_tunnel_addr(server: &str, token: &str) -> Result<SocketAddr> {
 }
 
 pub async fn build_channel(server: &str, tls: &TlsOptions) -> Result<Channel> {
+    #[cfg(unix)]
+    if let Some(path) = server.strip_prefix("unix://") {
+        let path = path.to_string();
+        let endpoint = Endpoint::from_static("http://[::]:50051");
+        return endpoint
+            .connect_with_connector(tower::service_fn(move |_: tonic::transport::Uri| {
+                let path = path.clone();
+                async move { tokio::net::UnixStream::connect(path).await.map(hyper_util::rt::TokioIo::new) }
+            }))
+            .await
+            .into_diagnostic();
+    }
+
     if server.starts_with("http://") {
         let endpoint = Endpoint::from_shared(server.to_string())
             .into_diagnostic()?

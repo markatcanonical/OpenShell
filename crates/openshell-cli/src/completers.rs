@@ -83,6 +83,20 @@ async fn completion_grpc_client(
     server: &str,
     gateway_name: &str,
 ) -> Option<OpenShellClient<Channel>> {
+    #[cfg(unix)]
+    if let Some(path) = server.strip_prefix("unix://") {
+        let path = path.to_string();
+        let endpoint = Endpoint::from_static("http://[::]:50051");
+        let channel = endpoint
+            .connect_with_connector(tower::service_fn(move |_: tonic::transport::Uri| {
+                let path = path.clone();
+                async move { tokio::net::UnixStream::connect(path).await.map(hyper_util::rt::TokioIo::new) }
+            }))
+            .await
+            .ok()?;
+        return Some(OpenShellClient::new(channel));
+    }
+
     let tls_opts = TlsOptions::default().with_gateway_name(gateway_name);
     let materials = require_tls_materials(server, &tls_opts).ok()?;
     let tls_config = build_tonic_tls_config(&materials);

@@ -261,11 +261,14 @@ pub async fn run_server(
         }
         if let Some(mode_str) = &config.unix_socket_mode {
             if let Ok(mode) = u32::from_str_radix(mode_str, 8) {
-                // Ignore failure
-                let _ = std::fs::set_permissions(
+                if let Err(e) = std::fs::set_permissions(
                     uds_path,
                     std::os::unix::fs::PermissionsExt::from_mode(mode),
-                );
+                ) {
+                    tracing::error!(error = %e, "Failed to set socket permissions");
+                } else {
+                    tracing::info!(mode = mode, "Socket permissions set successfully");
+                }
             }
         }
 

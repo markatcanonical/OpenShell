@@ -56,6 +56,9 @@ parts:
   workspace:
     plugin: rust
     source: .
+    build-environment:
+      - OPENSHELL_VM_RUNTIME_COMPRESSED_DIR: $CRAFT_STAGE/vm-runtime
+    after: [vm-runtime]
     build-packages:
       - build-essential
       - pkg-config
@@ -69,6 +72,12 @@ parts:
       - openssh-client
     rust-features: []
     rust-path: ["crates/openshell-cli", "crates/openshell-server", "crates/openshell-driver-vm"]
+
+  vm-runtime:
+    plugin: dump
+    source: target/vm-runtime-compressed
+    organize:
+      '*': vm-runtime/
 
   helm-charts:
     plugin: dump

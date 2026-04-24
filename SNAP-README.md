@@ -92,3 +92,8 @@ openshell sandbox create
 
 ... should drop you into a sandbox running on k8s.
 
+
+
+# TODO
+
+ - figure out how best to provide certificates
