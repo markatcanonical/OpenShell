@@ -63,6 +63,12 @@ pub struct Config {
     #[serde(default)]
     pub health_bind_address: Option<SocketAddr>,
 
+    /// Address to bind the Prometheus metrics endpoint to.
+    ///
+    /// When `None`, the dedicated metrics listener is disabled.
+    #[serde(default)]
+    pub metrics_bind_address: Option<SocketAddr>,
+
     /// Path to bind the UNIX Domain Socket listener to.
     #[serde(default)]
     pub unix_socket_path: Option<String>,
@@ -206,6 +212,7 @@ impl Config {
             unix_socket_path: None,
             unix_socket_group: None,
             unix_socket_mode: None,
+            metrics_bind_address: None,
             log_level: default_log_level(),
             tls,
             database_url: String::new(),
@@ -238,6 +245,12 @@ impl Config {
     #[must_use]
     pub const fn with_health_bind_address(mut self, addr: SocketAddr) -> Self {
         self.health_bind_address = Some(addr);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_metrics_bind_address(mut self, addr: SocketAddr) -> Self {
+        self.metrics_bind_address = Some(addr);
         self
     }
 
