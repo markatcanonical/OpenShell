@@ -4,8 +4,8 @@ base: core24
 version: 'git'
 summary: OpenShell CLI and Gateway
 description: |
-  OpenShell is an agent manager that drives Kubernetes to run sandboxed agents.
-  This snap packages the CLI tool and the host-native gateway daemon.
+  OpenShell is an agent manager that runs sandboxed agents in lightweight
+  microVMs (libkrun) or on Kubernetes.
 
 contact: https://github.com/NVIDIA/OpenShell/issues
 license: Apache-2.0
@@ -58,7 +58,7 @@ parts:
     source: .
     build-environment:
       - OPENSHELL_VM_RUNTIME_COMPRESSED_DIR: $CRAFT_STAGE/vm-runtime
-    after: [vm-runtime]
+    after: [vm-runtime, vm-rootfs]
     build-packages:
       - build-essential
       - pkg-config
@@ -74,10 +74,40 @@ parts:
     rust-path: ["crates/openshell-cli", "crates/openshell-server", "crates/openshell-driver-vm"]
 
   vm-runtime:
+    plugin: nil
+    build-packages:
+      - wget
+      - zstd
+      - tar
+    override-build: |
+      if [ "$CRAFT_ARCH_BUILD_FOR" = "amd64" ]; then
+        PLATFORM="linux-x86_64"
+      elif [ "$CRAFT_ARCH_BUILD_FOR" = "arm64" ]; then
+        PLATFORM="linux-aarch64"
+      else
+        echo "Unsupported architecture"
+        exit 1
+      fi
+      
+      URL="https://github.com/NVIDIA/OpenShell/releases/download/vm-dev/vm-runtime-${PLATFORM}.tar.zst"
+      echo "Downloading $URL"
+      
+      EXTRACT_DIR=$(mktemp -d)
+      wget -qO- "$URL" | zstd -d --stdout | tar -xf - -C "$EXTRACT_DIR"
+      
+      mkdir -p $CRAFT_PART_INSTALL/vm-runtime
+      for file in "$EXTRACT_DIR"/*; do
+        [ -f "$file" ] || continue
+        name=$(basename "$file")
+        [ "$name" = "provenance.json" ] && continue
+        zstd -19 -f -q -T0 -o "$CRAFT_PART_INSTALL/vm-runtime/${name}.zst" "$file"
+      done
+
+  vm-rootfs:
     plugin: dump
     source: target/vm-runtime-compressed
     organize:
-      '*': vm-runtime/
+      'rootfs.tar.zst': vm-runtime/rootfs.tar.zst
 
   helm-charts:
     plugin: dump

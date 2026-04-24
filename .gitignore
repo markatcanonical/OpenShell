@@ -36,6 +36,10 @@ openshell_*.snap
 openshell-core_*.rock
 develop-eggs/
 snap/local-images/
+snap/local-vm-runtime-extracted/
+.craft/
+prime/
+stage/
 dist/
 downloads/
 eggs/
