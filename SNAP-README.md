@@ -96,4 +96,8 @@ openshell sandbox create
 
 # TODO
 
+ - tests
  - figure out how best to provide certificates
+ - figure out what to do with Alpine VM rootfs - chiselled rock?
+ - documentation!
+
