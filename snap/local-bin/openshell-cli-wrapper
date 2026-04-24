@@ -1,0 +1,14 @@
+#!/bin/bash
+# Wrapper for the openshell CLI inside the snap.
+# Sources the daemon's config.env to pick up the configured port,
+# then sets OPENSHELL_GATEWAY_ENDPOINT so the CLI connects to the
+# local gateway over plaintext HTTP (TLS is disabled in snap mode).
+
+if [ -f "$SNAP_DATA/config.env" ]; then
+    source "$SNAP_DATA/config.env"
+fi
+
+PORT="${PORT:-8080}"
+export OPENSHELL_GATEWAY_ENDPOINT="http://127.0.0.1:$PORT"
+
+exec "$SNAP/bin/openshell" "$@"

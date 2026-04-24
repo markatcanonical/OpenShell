@@ -9,3 +9,16 @@ fi
 if [ -z "$(snapctl get socket-mode)" ]; then
     snapctl set socket-mode=0660
 fi
+
+if [ -z "$(snapctl get port)" ]; then
+    snapctl set port=8080
+fi
+
+# Generate a persistent SSH handshake secret on first install.
+# This secret authenticates gateway↔sandbox SSH sessions.
+# Stored in $SNAP_COMMON so it survives snap refreshes.
+SSH_SECRET_FILE="$SNAP_COMMON/ssh-handshake-secret"
+if [ ! -f "$SSH_SECRET_FILE" ]; then
+    head -c 32 /dev/urandom | base64 | tr -d '\n' > "$SSH_SECRET_FILE"
+    chmod 0600 "$SSH_SECRET_FILE"
+fi

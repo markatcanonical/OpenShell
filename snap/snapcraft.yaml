@@ -4,8 +4,9 @@ base: core24
 version: 'git'
 summary: OpenShell CLI and Gateway
 description: |
-  OpenShell is an agent manager that drives Kubernetes to run sandboxed agents.
-  This snap packages the CLI tool and the host-native gateway daemon.
+  OpenShell is an agent manager that runs sandboxed agents in lightweight
+  microVMs (libkrun) or on Kubernetes. This snap packages the CLI tool,
+  the host-native gateway daemon, and the VM compute driver.
 
 contact: https://github.com/NVIDIA/OpenShell/issues
 license: Apache-2.0
@@ -19,10 +20,9 @@ confinement: strict
 
 apps:
   openshell:
-    command: bin/openshell
+    command: bin/openshell-cli-wrapper
     environment:
       KUBECONFIG: $SNAP_REAL_HOME/.kube/config
-      OPENSHELL_GATEWAY_ENDPOINT: unix://$SNAP_COMMON/run/gateway.sock
     plugs:
       - network
       - network-bind
@@ -32,6 +32,7 @@ apps:
     daemon: simple
     environment:
       KUBECONFIG: $SNAP_REAL_HOME/.kube/config
+      OPENSHELL_VM_RUNTIME_DIR: $SNAP/vm-runtime
     plugs:
       - network
       - network-bind
@@ -56,6 +57,8 @@ parts:
   workspace:
     plugin: rust
     source: .
+    build-environment:
+      - OPENSHELL_VM_RUNTIME_COMPRESSED_DIR: "$CRAFT_PART_SRC/snap/local-vm-runtime"
     build-packages:
       - build-essential
       - pkg-config
@@ -98,3 +101,9 @@ parts:
     source: snap/local-bin
     organize:
       '*': bin/
+
+  vm-runtime:
+    plugin: dump
+    source: snap/local-vm-runtime-extracted
+    organize:
+      '*': vm-runtime/

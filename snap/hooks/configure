@@ -5,6 +5,7 @@ DRIVER=$(snapctl get driver)
 REGISTRY=$(snapctl get registry)
 SOCKET_GROUP=$(snapctl get socket-group)
 SOCKET_MODE=$(snapctl get socket-mode)
+PORT=$(snapctl get port)
 
 # Default to vm if driver is not set
 if [ -z "$DRIVER" ]; then
@@ -15,6 +16,14 @@ fi
 if [ -n "$SOCKET_MODE" ]; then
     if ! [[ "$SOCKET_MODE" =~ ^06[0-7]{2}$ ]]; then
         echo "Error: Invalid socket-mode: must be a 4-digit octal starting with 06 (e.g. 0660)" >&2
+        exit 1
+    fi
+fi
+
+# Validate port if set
+if [ -n "$PORT" ]; then
+    if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+        echo "Error: Invalid port '$PORT': must be 1-65535" >&2
         exit 1
     fi
 fi
@@ -50,6 +59,7 @@ DRIVER="${DRIVER}"
 REGISTRY="${REGISTRY}"
 SOCKET_GROUP="${SOCKET_GROUP}"
 SOCKET_MODE="${SOCKET_MODE}"
+PORT="${PORT}"
 EOF
 
 # Restart the gateway daemon

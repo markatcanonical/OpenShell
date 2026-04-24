@@ -1,94 +1,137 @@
 # Walkthrough of OpenShell snap
 
-This branch is a PoC of a simpler, more secure and more easily managed OpenShell install and distribution experience.
+This branch packages OpenShell as a snap with VM-based sandboxes (libkrun microVMs) as the default driver.
 
-The goal is this:
+## Prerequisites
 
-```
-sudo snap install k8s --classic
-sudo k8s bootstrap
-sudo snap install registry openshell
-
-openshell cluster init --registry localhost:5000
-openshell sandbox create
-```
-
-This could be a `curl | bash` script but we don't publish those as a recommended practice :)
-
-## Build it
-
-You need `rockcraft` and `snapcraft` to build the Docker image and snap respectively.
-
-```
+```shell
 sudo snap install snapcraft --classic
 sudo snap install rockcraft --classic
 ```
 
+Docker (or a compatible container runtime) is required for `rockcraft pack` and the rootfs build.
 
-This will build a rock (docker image) and then a snap which bundles that rock. Bundling the rock is a short term thing,
-we will shortly be able to attach the rock as a resource for the snap, which can be pulled dynamically (and updated
-independently).
+## Build
 
-  `./tasks/scripts/build-snap.sh`
+The build script downloads the VM runtime, builds the rootfs, creates the ROCK container image, and packages the snap:
 
-I think Gemini also integrated build:snap into the mise tooling but I don't know mise so haven't tried to exercise that.
-
-You should now see `openshell_<version>_<architecture>.snap` in the top-level directory. Since it has just been built
-locally it is not signed, so Ubuntu will not trust it by default. You need to install it with the `--dangerous` flag to
-acknowledge that:
-
+```shell
+./tasks/scripts/build-snap.sh
 ```
-sudo snap install ./openshell_<v>_<arch>.snap --dangerous
+
+This produces `openshell_<version>_<arch>.snap` in the repository root.
+
+## Install
+
+Since the snap is locally built (unsigned), install with `--dangerous`:
+
+```shell
+sudo snap install ./openshell_*.snap --dangerous
+```
+
+### Connect required interfaces
+
+The `kvm` interface provides `/dev/kvm` access for microVMs. It does **not** auto-connect:
+
+```shell
+sudo snap connect openshell:kvm
+```
+
+If you also use the k8s driver or `openshell cluster` commands:
+
+```shell
 sudo snap connect openshell:kube-config
 ```
 
-All of this would become `sudo snap install openshell` for a user once openshell is published in the store.
+### Verify connections
 
-## Use it
-
-You need K8s:
-
-```
-sudo snap install k8s --classic --channel=1.35-classic
-sudo k8s bootstrap
-sudo k8s status --wait-ready
-mkdir $HOME/.kube
-sudo cp /etc/kubernetes/admin.conf $HOME/.kube/config
-sudo chown $USER:$USER .kube/config
+```shell
+snap connections openshell
 ```
 
-You should see a clean running k8s. If you want, test it out:
+Expected output:
 
 ```
-sudo snap install kubectl --classic --channel=1.35
-kubectl get nodes
+Interface       Plug                      Slot             Notes
+kvm             openshell:kvm             :kvm             manual
+network         openshell:network         :network         -
+network-bind    openshell:network-bind    :network-bind    -
+personal-files  openshell:kube-config     :personal-files  manual
 ```
 
-You need a Docker image registry:
+## Configure
 
+The snap exposes settings via `snap set`:
+
+```shell
+# Driver: "vm" (default) or "k8s"
+sudo snap set openshell driver=vm
+
+# Gateway port (default 8080)
+sudo snap set openshell port=8080
+
+# UDS socket group and permissions
+sudo snap set openshell socket-group=docker socket-mode=0660
 ```
-sudo snap install registry
-```
 
-The registry should now be running on localhost:5000, feel free to test it with your fave OCI tools.
+## Use (VM mode)
 
-Now you need to initialize the cluster. This puts a daemonset on the k8s which installs a custom-written AppArmor profile
-for the supervisor container. That gives the supervisor (and only the supervisor) the permissions it needs to setup
-the sandboxes.
+```shell
+# Check the gateway daemon is running
+sudo snap services openshell.server
 
-```
-openshell cluster init --registry=localhost:5000
-```
+# View logs
+sudo snap logs openshell.server -f
 
-You should see a successful initialization. In theory this would work against a different registry, but you would also
-need to configure your K8s to trust that registry. We're using a localhost K8s and a localhost registry in this walkthrough
-so it should Just Work.
-
-Now you can make a sandbox:
-
-```
+# Create a sandbox
 openshell sandbox create
 ```
 
-... should drop you into a sandbox running on k8s.
+## Use (K8s mode)
 
+```shell
+sudo snap install k8s --classic --channel=1.35-classic
+sudo k8s bootstrap
+sudo k8s status --wait-ready
+mkdir -p $HOME/.kube
+sudo cp /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $USER:$USER $HOME/.kube/config
+
+sudo snap install registry
+sudo snap set openshell driver=k8s registry=localhost:5000
+
+openshell sandbox create
+```
+
+## Troubleshooting
+
+### Daemon won't start
+
+```shell
+# Check service status and logs
+sudo snap services openshell.server
+sudo snap logs openshell.server -n 50
+
+# Verify KVM access
+sudo snap connect openshell:kvm
+ls -la /dev/kvm
+```
+
+### "cannot open /dev/kvm" error
+
+The `kvm` interface must be connected:
+
+```shell
+sudo snap connect openshell:kvm
+sudo snap restart openshell.server
+```
+
+### Sandbox creation fails
+
+Check that the gateway is healthy:
+
+```shell
+sudo snap logs openshell.server -f
+```
+
+Look for driver startup messages. The VM driver extracts a rootfs on first sandbox creation — this can take a few seconds.
