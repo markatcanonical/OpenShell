@@ -44,6 +44,9 @@ struct Args {
     #[arg(long, hide = true, default_value_t = 2048)]
     vm_mem_mib: u32,
 
+    #[arg(long, hide = true)]
+    vm_run_as_uid: Option<u32>,
+
     #[arg(long, hide = true, default_value_t = 1)]
     vm_krun_log_level: u32,
 
@@ -203,6 +206,7 @@ fn build_vm_launch_config(args: &Args) -> std::result::Result<VmLaunchConfig, St
         workdir: args.vm_workdir.clone(),
         log_level: args.vm_krun_log_level,
         console_output,
+        run_as_uid: args.vm_run_as_uid,
     })
 }
 

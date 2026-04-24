@@ -22,10 +22,21 @@ apps:
     command: bin/openshell
     environment:
       KUBECONFIG: $SNAP_REAL_HOME/.kube/config
+      OPENSHELL_GATEWAY_ENDPOINT: unix://$SNAP_COMMON/run/gateway.sock
     plugs:
       - network
       - network-bind
       - kube-config
+  server:
+    command: bin/openshell-server-wrapper
+    daemon: simple
+    environment:
+      KUBECONFIG: $SNAP_REAL_HOME/.kube/config
+    plugs:
+      - network
+      - network-bind
+      - kube-config
+      - kvm
   cluster:
     command: bin/openshell cluster
     environment:
@@ -57,7 +68,7 @@ parts:
       - skopeo
       - openssh-client
     rust-features: []
-    rust-path: ["crates/openshell-cli"]
+    rust-path: ["crates/openshell-cli", "crates/openshell-server", "crates/openshell-driver-vm"]
 
   helm-charts:
     plugin: dump
@@ -67,15 +78,21 @@ parts:
 
   helm:
     plugin: nil
-    build-packages:
-      - wget
-    override-build: |
-      wget https://get.helm.sh/helm-v3.14.3-linux-amd64.tar.gz -O helm.tar.gz
-      tar -xzf helm.tar.gz linux-amd64/helm
-      install -D -m 755 linux-amd64/helm $CRAFT_PART_INSTALL/bin/helm
+    stage-snaps:
+      - helm/3.7/stable
+    organize:
+      helm: bin/helm
+    stage:
+      - bin/helm
 
   images:
     plugin: dump
     source: snap/local-images
     organize:
       '*': images/
+
+  local-bin:
+    plugin: dump
+    source: snap/local-bin
+    organize:
+      '*': bin/

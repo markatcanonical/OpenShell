@@ -63,6 +63,18 @@ pub struct Config {
     #[serde(default)]
     pub health_bind_address: Option<SocketAddr>,
 
+    /// Path to bind the UNIX Domain Socket listener to.
+    #[serde(default)]
+    pub unix_socket_path: Option<String>,
+
+    /// Group ownership for the UNIX Domain Socket.
+    #[serde(default)]
+    pub unix_socket_group: Option<String>,
+
+    /// Permissions for the UNIX Domain Socket (e.g., 0660).
+    #[serde(default)]
+    pub unix_socket_mode: Option<String>,
+
     /// Log level (trace, debug, info, warn, error).
     #[serde(default = "default_log_level")]
     pub log_level: String,
@@ -191,6 +203,9 @@ impl Config {
         Self {
             bind_address: default_bind_address(),
             health_bind_address: None,
+            unix_socket_path: None,
+            unix_socket_group: None,
+            unix_socket_mode: None,
             log_level: default_log_level(),
             tls,
             database_url: String::new(),
@@ -223,6 +238,27 @@ impl Config {
     #[must_use]
     pub const fn with_health_bind_address(mut self, addr: SocketAddr) -> Self {
         self.health_bind_address = Some(addr);
+        self
+    }
+
+    /// Create a new configuration with the given UNIX socket path.
+    #[must_use]
+    pub fn with_unix_socket_path(mut self, path: impl Into<String>) -> Self {
+        self.unix_socket_path = Some(path.into());
+        self
+    }
+
+    /// Create a new configuration with the given UNIX socket group.
+    #[must_use]
+    pub fn with_unix_socket_group(mut self, group: impl Into<String>) -> Self {
+        self.unix_socket_group = Some(group.into());
+        self
+    }
+
+    /// Create a new configuration with the given UNIX socket mode.
+    #[must_use]
+    pub fn with_unix_socket_mode(mut self, mode: impl Into<String>) -> Self {
+        self.unix_socket_mode = Some(mode.into());
         self
     }
 

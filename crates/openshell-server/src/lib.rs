@@ -218,6 +218,54 @@ pub async fn run_server(
         None
     };
 
+    // Accept UDS connections
+    if let Some(uds_path) = &config.unix_socket_path {
+        // Clean up stale socket
+        let _ = std::fs::remove_file(uds_path);
+        let uds_listener = tokio::net::UnixListener::bind(uds_path)
+            .map_err(|e| Error::transport(format!("failed to bind UDS {uds_path}: {e}")))?;
+
+        // Set ownership and permissions if configured
+        if let Some(group) = &config.unix_socket_group {
+            // Note: chown is unsafe but we can invoke the `chgrp` command for simplicity
+            let _ = std::process::Command::new("chgrp")
+                .arg(group)
+                .arg(uds_path)
+                .status();
+        }
+        if let Some(mode_str) = &config.unix_socket_mode {
+            if let Ok(mode) = u32::from_str_radix(mode_str, 8) {
+                // Ignore failure
+                let _ = std::fs::set_permissions(
+                    uds_path,
+                    std::os::unix::fs::PermissionsExt::from_mode(mode),
+                );
+            }
+        }
+
+        info!(path = %uds_path, "UDS Server listening");
+        let service = service.clone();
+        tokio::spawn(async move {
+            loop {
+                let (stream, _addr) = match uds_listener.accept().await {
+                    Ok(conn) => conn,
+                    Err(e) => {
+                        error!(error = %e, "Failed to accept UDS connection");
+                        continue;
+                    }
+                };
+
+                let peer_uid = stream.peer_cred().ok().map(|c| c.uid());
+                let service = service.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = service.serve(stream, peer_uid).await {
+                        error!(error = %e, "UDS Connection error");
+                    }
+                });
+            }
+        });
+    }
+
     // Accept connections
     loop {
         let (stream, addr) = match listener.accept().await {
@@ -235,7 +283,7 @@ pub async fn run_server(
             tokio::spawn(async move {
                 match tls_acceptor.inner().accept(stream).await {
                     Ok(tls_stream) => {
-                        if let Err(e) = service.serve(tls_stream).await {
+                        if let Err(e) = service.serve(tls_stream, None).await {
                             error!(error = %e, client = %addr, "Connection error");
                         }
                     }
@@ -250,7 +298,7 @@ pub async fn run_server(
             });
         } else {
             tokio::spawn(async move {
-                if let Err(e) = service.serve(stream).await {
+                if let Err(e) = service.serve(stream, None).await {
                     error!(error = %e, client = %addr, "Connection error");
                 }
             });

@@ -33,6 +33,7 @@ pub struct VmLaunchConfig {
     pub workdir: String,
     pub log_level: u32,
     pub console_output: PathBuf,
+    pub run_as_uid: Option<u32>,
 }
 
 pub fn run_vm(config: &VmLaunchConfig) -> Result<(), String> {
@@ -264,6 +265,18 @@ pub fn run_vm(config: &VmLaunchConfig) -> Result<(), String> {
             if let Err(err) = procguard::die_with_parent() {
                 eprintln!("libkrun worker: procguard arm failed: {err}");
                 std::process::exit(1);
+            }
+            if let Some(uid) = config.run_as_uid {
+                unsafe {
+                    if libc::setresgid(uid, uid, uid) != 0 {
+                        eprintln!("libkrun worker: setresgid failed: {}", std::io::Error::last_os_error());
+                        std::process::exit(1);
+                    }
+                    if libc::setresuid(uid, uid, uid) != 0 {
+                        eprintln!("libkrun worker: setresuid failed: {}", std::io::Error::last_os_error());
+                        std::process::exit(1);
+                    }
+                }
             }
             let ret = vm.start_enter();
             eprintln!("krun_start_enter failed: {ret}");

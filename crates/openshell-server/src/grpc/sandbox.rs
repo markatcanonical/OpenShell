@@ -46,6 +46,7 @@ pub(super) async fn handle_create_sandbox(
     state: &Arc<ServerState>,
     request: Request<CreateSandboxRequest>,
 ) -> Result<Response<SandboxResponse>, Status> {
+    let peer_uid = request.extensions().get::<crate::multiplex::PeerUid>().map(|uid| uid.0);
     let request = request.into_inner();
     let spec = request
         .spec
@@ -105,7 +106,7 @@ pub(super) async fn handle_create_sandbox(
             status
         })?;
 
-    let sandbox = state.compute.create_sandbox(sandbox).await?;
+    let sandbox = state.compute.create_sandbox(sandbox, peer_uid).await?;
 
     info!(
         sandbox_id = %sandbox.id,

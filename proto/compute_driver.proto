@@ -84,6 +84,8 @@ message DriverSandboxSpec {
   DriverSandboxTemplate template = 6;
   // Request NVIDIA GPU resources for this sandbox.
   bool gpu = 9;
+  // User ID to run the sandbox as, extracted from UDS auth.
+  optional uint32 run_as_uid = 10;
 }
 
 // Driver-owned runtime template consumed by the compute platform.
