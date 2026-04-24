@@ -1,0 +1,51 @@
+name: openshell-vm-rootfs
+base: ubuntu@24.04
+adopt-info: workspace
+version: git
+summary: OpenShell VM Rootfs
+description: MicroVM root filesystem for OpenShell sandboxes
+
+platforms:
+  amd64:
+  arm64:
+
+parts:
+  workspace:
+    plugin: rust
+    source: .
+    build-packages:
+      - build-essential
+      - pkg-config
+      - libssl-dev
+      - clang
+      - libclang-dev
+      - libz3-dev
+    stage-packages:
+      - ca-certificates
+      - e2fsprogs
+      - iptables
+      - iproute2
+      - python3-minimal
+      - busybox-static
+      - sqlite3
+      - util-linux
+      - zstd
+    rust-features: []
+    rust-path: 
+      - "crates/openshell-sandbox"
+    organize:
+      bin/openshell-sandbox: opt/openshell/bin/openshell-sandbox
+    override-pull: |
+      craftctl default
+      # Set version to git describe or short commit hash
+      craftctl set version=$(git describe --tags --abbrev=10 || git rev-parse --short HEAD)
+
+  scripts:
+    plugin: nil
+    source: crates/openshell-driver-vm/scripts
+    organize:
+      openshell-vm-sandbox-init.sh: srv/openshell-vm-sandbox-init.sh
+    override-build: |
+      mkdir -p $CRAFT_PART_INSTALL/usr/share/udhcpc $CRAFT_PART_INSTALL/sbin
+      ln -sf /bin/busybox $CRAFT_PART_INSTALL/sbin/udhcpc
+      install -m 755 openshell-vm-sandbox-init.sh $CRAFT_PART_INSTALL/openshell-vm-sandbox-init.sh
