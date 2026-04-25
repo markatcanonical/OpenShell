@@ -235,25 +235,56 @@ impl PodmanClient {
         Self { socket_path }
     }
 
-    /// Open a new HTTP/1.1 connection to the Podman socket.
-    async fn connect(
+    async fn connect<B>(
         &self,
-    ) -> Result<hyper::client::conn::http1::SendRequest<Full<Bytes>>, PodmanApiError> {
-        let stream = UnixStream::connect(&self.socket_path).await.map_err(|e| {
-            PodmanApiError::Connection(format!("{}: {e}", self.socket_path.display()))
-        })?;
+    ) -> Result<hyper::client::conn::http1::SendRequest<B>, PodmanApiError> 
+    where
+        B: hyper::body::Body + 'static + Send,
+        B::Data: Send,
+        B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+    {
+        let path_str = self.socket_path.to_string_lossy();
 
-        let (sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
-            .await
-            .map_err(|e| PodmanApiError::Connection(e.to_string()))?;
+        if path_str.starts_with("tcp://") {
+            let addr = path_str.trim_start_matches("tcp://");
+            let stream = tokio::net::TcpStream::connect(addr).await.map_err(|e| {
+                PodmanApiError::Connection(format!("tcp connection failed to {addr}: {e}"))
+            })?;
 
-        tokio::spawn(async move {
-            if let Err(e) = conn.await {
-                debug!(error = %e, "Podman API connection closed");
-            }
-        });
+            let (sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
+                .await
+                .map_err(|e| PodmanApiError::Connection(e.to_string()))?;
 
-        Ok(sender)
+            tokio::spawn(async move {
+                if let Err(e) = conn.await {
+                    debug!(error = %e, "Podman API TCP connection closed");
+                }
+            });
+
+            Ok(sender)
+        } else {
+            let path_to_connect = if path_str.starts_with("unix://") {
+                path_str.trim_start_matches("unix://")
+            } else {
+                &path_str
+            };
+
+            let stream = UnixStream::connect(path_to_connect).await.map_err(|e| {
+                PodmanApiError::Connection(format!("{}: {e}", path_to_connect))
+            })?;
+
+            let (sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
+                .await
+                .map_err(|e| PodmanApiError::Connection(e.to_string()))?;
+
+            tokio::spawn(async move {
+                if let Err(e) = conn.await {
+                    debug!(error = %e, "Podman API UNIX connection closed");
+                }
+            });
+
+            Ok(sender)
+        }
     }
 
     // ── Request infrastructure ───────────────────────────────────────────
@@ -276,12 +307,17 @@ impl PodmanClient {
     }
 
     /// Send a pre-built HTTP request and return status + body bytes.
-    async fn send_request(
+    async fn send_request<B>(
         &self,
-        req: Request<Full<Bytes>>,
+        req: Request<B>,
         timeout: Duration,
-    ) -> Result<(hyper::StatusCode, Bytes), PodmanApiError> {
-        let mut sender = self.connect().await?;
+    ) -> Result<(hyper::StatusCode, Bytes), PodmanApiError> 
+    where
+        B: hyper::body::Body + 'static + Send,
+        B::Data: Send,
+        B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+    {
+        let mut sender = self.connect::<B>().await?;
         let response = tokio::time::timeout(timeout, sender.send_request(req))
             .await
             .map_err(|_| PodmanApiError::Timeout(timeout))?
@@ -459,6 +495,85 @@ impl PodmanClient {
             None,
         )
         .await
+    }
+
+    pub async fn tag_image(&self, name: &str, repo: &str, tag: &str) -> Result<(), PodmanApiError> {
+        let path = format!("/images/{}/tag?repo={}&tag={}", name, repo, tag);
+        self.request_ok(hyper::Method::POST, &path, None).await
+    }
+
+    /// Load an OCI archive into Podman, streaming it directly from disk.
+    /// Returns the name of the loaded image.
+    pub async fn load_image_archive(
+        &self,
+        path: &std::path::Path,
+    ) -> Result<String, PodmanApiError> {
+        use http_body_util::StreamBody;
+        use hyper::body::Frame;
+        use tokio::fs::File;
+        use tokio::io::AsyncReadExt;
+
+        let mut file = File::open(path)
+            .await
+            .map_err(|e| PodmanApiError::Connection(format!("Failed to open archive: {}", e)))?;
+
+        let (tx, rx) = tokio::sync::mpsc::channel::<Result<Frame<Bytes>, std::io::Error>>(2);
+
+        tokio::spawn(async move {
+            let mut buf = vec![0; 8 * 1024 * 1024]; // 8 MB chunks
+            loop {
+                match file.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let bytes = Bytes::copy_from_slice(&buf[..n]);
+                        if tx.send(Ok(Frame::data(bytes))).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx.send(Err(e)).await;
+                        break;
+                    }
+                }
+            }
+        });
+
+        let body = StreamBody::new(tokio_stream::wrappers::ReceiverStream::new(rx));
+        let req = Request::builder()
+            .method(hyper::Method::POST)
+            .uri(format!("http://localhost/{API_VERSION}/images/load"))
+            .header("Host", "localhost")
+            .header("Content-Type", "application/x-tar")
+            .body(body)
+            .expect("valid request");
+
+        let (status, bytes) = self.send_request(req, Duration::from_secs(120)).await?;
+
+        if !status.is_success() {
+            return Err(PodmanApiError::Connection(format!(
+                "Failed to load image: {}",
+                String::from_utf8_lossy(&bytes)
+            )));
+        }
+
+        let output = String::from_utf8_lossy(&bytes);
+        // Look for "Loaded image: <name>"
+        let mut loaded_name = None;
+        for line in output.lines() {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
+                if let Some(stream) = json.get("stream").and_then(|s| s.as_str()) {
+                    if let Some(name) = stream.strip_prefix("Loaded image: ") {
+                        loaded_name = Some(name.trim().to_string());
+                    }
+                }
+            } else if let Some(name) = line.strip_prefix("Loaded image: ") {
+                loaded_name = Some(name.trim().to_string());
+            }
+        }
+
+        loaded_name.ok_or_else(|| {
+            PodmanApiError::Connection(format!("Could not extract image name from: {}", output))
+        })
     }
 
     // ── Volume operations ────────────────────────────────────────────────

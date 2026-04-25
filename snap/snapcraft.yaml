@@ -53,6 +53,12 @@ plugs:
     read:
       - $HOME/.kube/config
 
+hooks:
+  configure:
+    plugs:
+      - network
+      - network-bind
+
 parts:
   workspace:
     plugin: rust

@@ -5,6 +5,7 @@ DRIVER=$(snapctl get driver)
 REGISTRY=$(snapctl get registry)
 SOCKET_GROUP=$(snapctl get socket-group)
 SOCKET_MODE=$(snapctl get socket-mode)
+PODMAN_SOCKET=$(snapctl get podman-socket)
 
 # Default to vm if driver is not set
 if [ -z "$DRIVER" ]; then
@@ -38,8 +39,17 @@ if [ "$DRIVER" = "k8s" ]; then
         echo "Error: Failed to initialize Kubernetes cluster" >&2
         exit 1
     fi
+elif [ "$DRIVER" = "podman" ]; then
+    if [ -n "$PODMAN_SOCKET" ]; then
+        export OPENSHELL_PODMAN_SOCKET="$PODMAN_SOCKET"
+    fi
+    echo "Initializing Podman driver..."
+    if ! "$SNAP/bin/openshell" podman init; then
+        echo "Error: Failed to load images into Podman. Make sure the socket is reachable." >&2
+        exit 1
+    fi
 elif [ "$DRIVER" != "vm" ]; then
-    echo "Error: Invalid driver '$DRIVER'. Allowed values: vm, k8s" >&2
+    echo "Error: Invalid driver '$DRIVER'. Allowed values: vm, k8s, podman" >&2
     exit 1
 fi
 
@@ -50,6 +60,7 @@ DRIVER="${DRIVER}"
 REGISTRY="${REGISTRY}"
 SOCKET_GROUP="${SOCKET_GROUP}"
 SOCKET_MODE="${SOCKET_MODE}"
+PODMAN_SOCKET="${PODMAN_SOCKET}"
 EOF
 
 # Restart the gateway daemon

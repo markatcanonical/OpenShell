@@ -57,7 +57,7 @@ fn validated_container_name(sandbox_name: &str) -> Result<String, ComputeDriverE
 impl PodmanComputeDriver {
     /// Create a new driver, verifying the Podman socket is reachable.
     pub async fn new(mut config: PodmanComputeConfig) -> Result<Self, PodmanApiError> {
-        if !config.socket_path.exists() {
+        if !config.socket_path.to_string_lossy().starts_with("tcp://") && !config.socket_path.exists() {
             warn!(
                 path = %config.socket_path.display(),
                 "Podman socket not found; is the Podman service running? \
