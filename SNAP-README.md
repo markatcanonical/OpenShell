@@ -17,21 +17,29 @@ This could be a `curl | bash` script but we don't publish those as a recommended
 
 ## Build it
 
-You need `rockcraft` and `snapcraft` to build the Docker image and snap respectively.
+You need `rockcraft` and `snapcraft` to build the Docker image and snap respectively.  `mise` is used to orchestrate build and test tasks.
 
 ```
 sudo snap install snapcraft --classic
 sudo snap install rockcraft --classic
+sudo snap install mise --classic
 ```
 
+`umoci` is needed to extract OCI images.  `fakeroot` ensures that files in the Rock image have the correct owner.
+```
+sudo apt install umoci fakeroot -y
+```
 
-This will build a rock (docker image) and then a snap which bundles that rock. Bundling the rock is a short term thing,
-we will shortly be able to attach the rock as a resource for the snap, which can be pulled dynamically (and updated
-independently).
+You may need to initialize LXD if running on a new virutal machine:
+```
+lxd init --auto
+```
 
-  `./tasks/scripts/build-snap.sh`
+Build the VM Rootfs, Rock image, and Snap package:
+```
+mise build:snap
+```
 
-I think Gemini also integrated build:snap into the mise tooling but I don't know mise so haven't tried to exercise that.
 
 You should now see `openshell_<version>_<architecture>.snap` in the top-level directory. Since it has just been built
 locally it is not signed, so Ubuntu will not trust it by default. You need to install it with the `--dangerous` flag to
@@ -63,7 +71,7 @@ EOF
 sudo k8s status --wait-ready
 mkdir $HOME/.kube
 sudo cp /etc/kubernetes/admin.conf $HOME/.kube/config
-sudo chown $USER:$USER .kube/config
+sudo chown $USER:$USER $HOME/.kube/config
 ```
 
 You should see a clean running k8s. If you want, test it out:
