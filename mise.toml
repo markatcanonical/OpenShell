@@ -24,6 +24,7 @@ helm = "4.1.4"
 "github:anchore/syft" = { version = "1.42.3" }
 "github:EmbarkStudios/cargo-about" = { version = "0.8.4", version_prefix = "" }
 zig = "0.14.1"
+"npm:markdownlint-cli2" = "0.22.0"
 
 [env]
 _.path = ["{{config_root}}/scripts/bin"]
@@ -39,7 +40,8 @@ UV_CACHE_DIR = "{{config_root}}/.cache/uv"
 RUSTC_WRAPPER = "sccache"
 SCCACHE_DIR = "{{config_root}}/.cache/sccache"
 
-# Shared build constants (overridable via environment)
+# Shared build constants (overridable via environment).
+# DOCKER_BUILDKIT enables BuildKit for Docker; ignored by podman.
 DOCKER_BUILDKIT = "1"
 
 [vars]
