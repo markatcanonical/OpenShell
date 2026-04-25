@@ -447,6 +447,13 @@ enum Commands {
         command: Option<ClusterCommands>,
     },
 
+    /// Manage Podman compute driver initialization.
+    #[command(help_template = SUBCOMMAND_HELP_TEMPLATE)]
+    Podman {
+        #[command(subcommand)]
+        command: Option<PodmanCommands>,
+    },
+
     // ===================================================================
     // GATEWAY COMMANDS
     // ===================================================================
@@ -621,6 +628,13 @@ enum ClusterCommands {
         #[arg(long, required = true)]
         registry: String,
     },
+}
+
+#[derive(Subcommand, Debug)]
+enum PodmanCommands {
+    /// Initialize Podman to serve as a compute driver for OpenShell.
+    #[command(help_template = LEAF_HELP_TEMPLATE, next_help_heading = "FLAGS")]
+    Init,
 }
 
 #[derive(Clone, Debug, ValueEnum)]
@@ -1746,6 +1760,24 @@ async fn main() -> Result<()> {
         Some(Commands::Cluster { command: None }) => {
             Cli::command()
                 .find_subcommand_mut("cluster")
+                .unwrap()
+                .print_help()
+                .map_err(|e| miette::miette!(e))?;
+        }
+
+        // -----------------------------------------------------------
+        // Podman commands
+        // -----------------------------------------------------------
+        Some(Commands::Podman {
+            command: Some(command),
+        }) => match command {
+            PodmanCommands::Init => {
+                openshell_cli::commands::podman::init().await?;
+            }
+        },
+        Some(Commands::Podman { command: None }) => {
+            Cli::command()
+                .find_subcommand_mut("podman")
                 .unwrap()
                 .print_help()
                 .map_err(|e| miette::miette!(e))?;

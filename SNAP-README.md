@@ -100,6 +100,8 @@ openshell sandbox create
  - figure out how best to provide certificates
  - slim down rootfs - chiselled rock?
  - chisel the k8s openshell-core rock
+ - figure out if cluster init etc should go into openshell bootstrap
+ - perhaps `openshell k8s init` would be more accurate now with Podman included in tree
  - do better than process-control
  - documentation!
 

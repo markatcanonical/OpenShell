@@ -10,6 +10,7 @@ pub(crate) static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(()
 
 pub mod auth;
 pub mod bootstrap;
+pub mod commands;
 pub mod completers;
 pub mod edge_tunnel;
 pub(crate) mod policy_update;
