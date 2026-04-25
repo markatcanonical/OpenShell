@@ -99,9 +99,10 @@ openshell sandbox create
  - tests
  - figure out how best to provide certificates
  - slim down rootfs - chiselled rock?
+ - figure out if we still need kube-config
  - chisel the k8s openshell-core rock
- - figure out if cluster init etc should go into openshell bootstrap
  - perhaps `openshell k8s init` would be more accurate now with Podman included in tree
+ - figure out if podman socket can be made visible to gateway
  - do better than process-control
  - documentation!
 

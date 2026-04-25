@@ -347,9 +347,10 @@ pub fn build_container_spec(sandbox: &DriverSandbox, config: &PodmanComputeConfi
         // Side-load the supervisor binary from a standalone OCI image.
         // Podman resolves image_volumes at the libpod layer, mounting the
         // image's filesystem at the destination path without starting a
-        // container from it. The supervisor image is FROM scratch with just
-        // the binary at /openshell-sandbox, so it appears at
-        // /opt/openshell/bin/openshell-sandbox.
+        // container from it. 
+        // The supervisor image (openshell-core.rock) is a full Ubuntu
+        // rootfs with the binary at /usr/local/bin/openshell-sandbox, so it
+        // appears at /opt/openshell/bin/usr/local/bin/openshell-sandbox.
         image_volumes: vec![ImageVolume {
             source: config.supervisor_image.clone(),
             destination: "/opt/openshell/bin".into(),
@@ -360,9 +361,9 @@ pub fn build_container_spec(sandbox: &DriverSandbox, config: &PodmanComputeConfi
         // directly. Sandbox images (e.g. the community base image) set
         // ENTRYPOINT ["/bin/bash"], and Podman's `command` field only
         // overrides CMD — which gets appended as args to the entrypoint.
-        // Without this, the container would run `/bin/bash /opt/openshell/bin/openshell-sandbox`
+        // Without this, the container would run `/bin/bash /opt/openshell/bin/usr/local/bin/openshell-sandbox`
         // and bash would fail trying to interpret the binary as a script.
-        entrypoint: vec!["/opt/openshell/bin/openshell-sandbox".into()],
+        entrypoint: vec!["/opt/openshell/bin/usr/local/bin/openshell-sandbox".into()],
         command: vec![],
         // Force the supervisor to run as root (UID 0). Sandbox images may
         // set a non-root USER directive (e.g. `USER sandbox`), but the
