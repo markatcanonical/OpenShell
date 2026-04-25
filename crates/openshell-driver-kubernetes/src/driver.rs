@@ -1156,7 +1156,7 @@ fn sandbox_template_to_k8s(
 
     let mut result = serde_json::Value::Object(template_value);
 
-    // Always side-load the supervisor binary from the node filesystem
+    // Always side-load the supervisor binary from an init container
     apply_supervisor_sideload(
         &mut result,
         supervisor_image,
@@ -1475,7 +1475,7 @@ mod tests {
             }
         });
 
-        apply_supervisor_sideload(&mut pod_template);
+        apply_supervisor_sideload(&mut pod_template, "supervisor-image:latest", "");
 
         let sc = &pod_template["spec"]["containers"][0]["securityContext"];
         assert_eq!(sc["runAsUser"], 0, "runAsUser must be 0 for supervisor");
@@ -1499,7 +1499,7 @@ mod tests {
             }
         });
 
-        apply_supervisor_sideload(&mut pod_template);
+        apply_supervisor_sideload(&mut pod_template, "supervisor-image:latest", "");
 
         let sc = &pod_template["spec"]["containers"][0]["securityContext"];
         assert_eq!(
@@ -1519,22 +1519,24 @@ mod tests {
             }
         });
 
-        apply_supervisor_sideload(&mut pod_template);
+        apply_supervisor_sideload(&mut pod_template, "supervisor-image:latest", "");
 
-        // No init containers should be present (hostPath, not emptyDir+init)
+        // Init container should be present:
         assert!(
-            pod_template["spec"]["initContainers"].is_null(),
-            "hostPath sideload should not create init containers"
+            !pod_template["spec"]["initContainers"].is_null()
+                && pod_template["spec"]["initContainers"]
+                    .as_array()
+                    .map_or(false, |a| !a.is_empty()),
+            "init container must be present"
         );
 
-        // Volume should be a hostPath volume
+        // Volume should be a emptyDir volume
         let volumes = pod_template["spec"]["volumes"]
             .as_array()
             .expect("volumes should exist");
         assert_eq!(volumes.len(), 1);
         assert_eq!(volumes[0]["name"], SUPERVISOR_VOLUME_NAME);
-        assert_eq!(volumes[0]["hostPath"]["path"], SUPERVISOR_HOST_PATH);
-        assert_eq!(volumes[0]["hostPath"]["type"], "DirectoryOrCreate");
+        assert_eq!(volumes[0]["emptyDir"].is_object(), true);
 
         // Agent container command should be overridden
         let command = pod_template["spec"]["containers"][0]["command"]
@@ -1610,6 +1612,8 @@ mod tests {
             true,
             "openshell/sandbox:latest",
             "",
+            "supervisor-image:latest",
+            "",
             "sandbox-id",
             "sandbox-name",
             "https://gateway.example.com",
@@ -1653,6 +1657,8 @@ mod tests {
             true,
             "openshell/sandbox:latest",
             "",
+            "supervisor-image:latest",
+            "",
             "sandbox-id",
             "sandbox-name",
             "https://gateway.example.com",
@@ -1692,6 +1698,8 @@ mod tests {
             false,
             "openshell/sandbox:latest",
             "",
+            "supervisor-image:latest",
+            "",
             "sandbox-id",
             "sandbox-name",
             "https://gateway.example.com",
@@ -1726,6 +1734,8 @@ mod tests {
             true,
             "openshell/sandbox:latest",
             "",
+            "supervisor-image:latest",
+            "",
             "sandbox-id",
             "sandbox-name",
             "https://gateway.example.com",
@@ -1752,6 +1762,8 @@ mod tests {
             &SandboxTemplate::default(),
             false,
             "openshell/sandbox:latest",
+            "",
+            "supervisor-image:latest",
             "",
             "sandbox-id",
             "sandbox-name",
@@ -1784,6 +1796,8 @@ mod tests {
             false,
             "openshell/sandbox:latest",
             "",
+            "supervisor-image:latest",
+            "",
             "sandbox-id",
             "sandbox-name",
             "https://gateway.example.com",
@@ -1809,6 +1823,8 @@ mod tests {
             &template,
             false,
             "openshell/sandbox:latest",
+            "",
+            "supervisor-image:latest",
             "",
             "sandbox-id",
             "sandbox-name",
@@ -1955,6 +1971,8 @@ mod tests {
             false,
             "openshell/sandbox:latest",
             "",
+            "supervisor-image:latest",
+            "",
             "sandbox-id",
             "sandbox-name",
             "https://gateway.example.com",
@@ -1967,13 +1985,13 @@ mod tests {
             false, // user provided custom VCTs
         );
 
-        // No init container should be present
+        // Init container should be present
         assert!(
-            pod_template["spec"]["initContainers"].is_null()
-                || pod_template["spec"]["initContainers"]
+            !pod_template["spec"]["initContainers"].is_null()
+                && pod_template["spec"]["initContainers"]
                     .as_array()
-                    .is_none_or(|a| a.is_empty()),
-            "workspace init container must NOT be present when inject_workspace is false"
+                    .map_or(false, |a| !a.is_empty()),
+            "workspace init container must be present"
         );
 
         // No workspace volume mount on agent
