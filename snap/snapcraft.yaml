@@ -14,7 +14,7 @@ source-code: https://github.com/NVIDIA/OpenShell
 website: https://github.com/NVIDIA/OpenShell
 donation: https://nvidia.com/
 
-grade: stable
+adopt-info: workspace
 confinement: strict
 
 apps:
@@ -73,12 +73,42 @@ parts:
       - clang
       - libclang-dev
       - libz3-dev
+      - git
     stage-packages:
       - libz3-4
       - skopeo
       - openssh-client
     rust-features: []
     rust-path: ["crates/openshell-cli", "crates/openshell-server", "crates/openshell-driver-vm"]
+    override-pull: |
+      # Pull the source using snapcraft.
+      craftctl default
+
+      # Set defaults.
+      grade=devel
+      full_tag="$(git describe --tags --abbrev=0 2>/dev/null)" || true
+      hash="$(git rev-parse --short HEAD 2>/dev/null)"
+
+      # Remove leading 'v' from tag for the version string.
+      tag="${full_tag#v}"
+
+      # Check for tagged version.
+      if [ -n "$full_tag" ]; then
+        count="$(git rev-list "$full_tag".. --count 2>/dev/null)"
+        if [ "$count" -eq 0 ]; then
+          version="$tag"
+          grade=stable
+        else
+          version="$tag+git$count.$hash"
+        fi
+      else
+        count="$(git rev-list HEAD --count 2>/dev/null)"
+        version="0+git$count.$hash"
+      fi
+
+      # Relay back to snapcraft.
+      craftctl set grade="$grade"
+      craftctl set version="$version"
 
   vm-runtime:
     plugin: nil
