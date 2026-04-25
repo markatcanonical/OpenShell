@@ -87,11 +87,11 @@ mkdir -p "${TARGET_DIR}"
 # We use fakeroot so that the resulting tarball stores files as root:root (UID 0),
 # which is what the VM guest kernel expects when it mounts the virtio-fs.
 if command -v fakeroot >/dev/null 2>&1; then
-    fakeroot tar -C "${BUNDLE_DIR}/rootfs" -cf - . | zstd -19 -T0 -o "${ROOTFS_TARBALL}"
+    fakeroot tar -C "${BUNDLE_DIR}/rootfs" -cf - . | zstd -f -19 -T0 -o "${ROOTFS_TARBALL}"
 else
     echo "WARNING: fakeroot not installed. Files in rootfs will be owned by your user id instead of root."
     echo "         To fix this, install fakeroot: sudo apt install fakeroot"
-    tar -C "${BUNDLE_DIR}/rootfs" -cf - . | zstd -19 -T0 -o "${ROOTFS_TARBALL}"
+    exit 1
 fi
 
 echo "==> Cleaning up..."

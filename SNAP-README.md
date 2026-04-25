@@ -98,7 +98,8 @@ openshell sandbox create
 
  - tests
  - figure out how best to provide certificates
- - figure out what to do with Alpine VM rootfs - chiselled rock?
+ - slim down rootfs - chiselled rock?
+ - chisel the k8s openshell-core rock
  - do better than process-control
  - documentation!
 

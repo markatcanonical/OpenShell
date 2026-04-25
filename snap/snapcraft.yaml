@@ -27,6 +27,7 @@ apps:
       - network
       - network-bind
       - kube-config
+      - home
   server:
     command: bin/openshell-server-wrapper
     daemon: simple
