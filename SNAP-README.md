@@ -50,7 +50,16 @@ You need K8s:
 
 ```
 sudo snap install k8s --classic --channel=1.35-classic
-sudo k8s bootstrap
+cat <<EOF | sudo k8s bootstrap --file -
+containerd-base-dir: /run/canonical-containerd/
+cluster-config:
+  network:
+    enabled: true
+  dns:
+    enabled: true
+  local-storage:
+    enabled: true
+EOF
 sudo k8s status --wait-ready
 mkdir $HOME/.kube
 sudo cp /etc/kubernetes/admin.conf $HOME/.kube/config
