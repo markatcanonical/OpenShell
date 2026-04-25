@@ -100,6 +100,13 @@ You should see a successful initialization. In theory this would work against a 
 need to configure your K8s to trust that registry. We're using a localhost K8s and a localhost registry in this walkthrough
 so it should Just Work.
 
+
+The openshell socket permissions need to be updated for a non-root user to use it:
+```
+sudo snap set openshell socket-mode=0666
+```
+
+
 Now you can make a sandbox:
 
 ```
