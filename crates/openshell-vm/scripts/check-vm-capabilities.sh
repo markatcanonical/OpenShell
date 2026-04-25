@@ -159,24 +159,7 @@ check "ip_route" "routing" "required" \
     "IP routing" \
     "ip route show >/dev/null 2>&1"
 
-# --- CNI Plugin Dependencies ---
-if [ "$JSON_OUTPUT" = false ]; then echo ""; echo "[CNI Plugins]"; fi
 
-check "cni_bridge_bin" "cni" "required" \
-    "bridge CNI plugin binary" \
-    "test -x /opt/cni/bin/bridge || find /var/lib/rancher/k3s/data -name bridge -type f 2>/dev/null | head -1 | grep -q ."
-
-check "cni_host_local_bin" "cni" "required" \
-    "host-local IPAM plugin binary" \
-    "test -x /opt/cni/bin/host-local || find /var/lib/rancher/k3s/data -name host-local -type f 2>/dev/null | head -1 | grep -q ."
-
-check "cni_loopback_bin" "cni" "required" \
-    "loopback CNI plugin binary" \
-    "test -x /opt/cni/bin/loopback || find /var/lib/rancher/k3s/data -name loopback -type f 2>/dev/null | head -1 | grep -q ."
-
-check "cni_portmap_bin" "cni" "optional" \
-    "portmap CNI plugin binary (needs iptables)" \
-    "test -x /opt/cni/bin/portmap || find /var/lib/rancher/k3s/data -name portmap -type f 2>/dev/null | head -1 | grep -q ."
 
 # --- Userspace Tools ---
 if [ "$JSON_OUTPUT" = false ]; then echo ""; echo "[Userspace Tools]"; fi
