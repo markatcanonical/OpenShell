@@ -35,6 +35,7 @@ if [ "$DRIVER" = "k8s" ]; then
 
     # Attempt to initialize k8s cluster
     echo "Initializing OpenShell Kubernetes Cluster..."
+    export KUBECONFIG="/root/.kube/config"
     if ! "$SNAP/bin/openshell" cluster init --registry "$REGISTRY"; then
         echo "Error: Failed to initialize Kubernetes cluster" >&2
         exit 1

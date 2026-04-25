@@ -58,6 +58,7 @@ hooks:
     plugs:
       - network
       - network-bind
+      - kube-config
 
 parts:
   workspace:
@@ -77,6 +78,7 @@ parts:
       - libz3-4
       - skopeo
       - openssh-client
+      - curl
     rust-features: []
     rust-path: ["crates/openshell-cli", "crates/openshell-server", "crates/openshell-driver-vm"]
 
