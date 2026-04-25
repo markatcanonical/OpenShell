@@ -30,7 +30,7 @@ sudo snap install mise --classic
 sudo apt install umoci fakeroot -y
 ```
 
-You may need to initialize LXD if running on a new virutal machine:
+You may need to initialize LXD if running on a new virtual machine:
 ```
 lxd init --auto
 ```
@@ -39,7 +39,6 @@ Build the VM Rootfs, Rock image, and Snap package:
 ```
 mise build:snap
 ```
-
 
 You should now see `openshell_<version>_<architecture>.snap` in the top-level directory. Since it has just been built
 locally it is not signed, so Ubuntu will not trust it by default. You need to install it with the `--dangerous` flag to
@@ -113,7 +112,7 @@ openshell sandbox create
 
 # TODO
 
- - tests
+ - more tests
  - figure out how best to provide certificates
  - slim down rootfs - chiselled rock?
  - figure out if we still need kube-config
