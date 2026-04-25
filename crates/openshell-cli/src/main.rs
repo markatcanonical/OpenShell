@@ -8,6 +8,7 @@ use clap_complete::engine::ArgValueCompleter;
 use clap_complete::env::CompleteEnv;
 use miette::Result;
 use owo_colors::OwoColorize;
+use std::collections::HashMap;
 use std::io::Write;
 
 use openshell_bootstrap::{
@@ -61,7 +62,9 @@ fn resolve_gateway(
     gateway_flag: &Option<String>,
     gateway_endpoint: &Option<String>,
 ) -> Result<GatewayContext> {
-    if let Some(endpoint) = gateway_endpoint {
+    if let Some(endpoint) = gateway_endpoint
+        && !should_ignore_snap_gateway_endpoint(endpoint)
+    {
         // When a gateway name is explicitly provided (via flag or env var),
         // trust it directly — don't require metadata to exist yet. This
         // avoids a race condition where mTLS certs are stored under the
@@ -120,6 +123,98 @@ fn resolve_gateway_name(gateway_flag: &Option<String>) -> Option<String> {
                 .filter(|v| !v.trim().is_empty())
         })
         .or_else(load_active_gateway)
+}
+
+fn command_needs_snap_k8s_auto_init(command: &Option<Commands>) -> bool {
+    matches!(
+        command,
+        Some(Commands::Sandbox { .. })
+            | Some(Commands::Forward { .. })
+            | Some(Commands::Logs { .. })
+            | Some(Commands::Policy { .. })
+            | Some(Commands::Settings { .. })
+            | Some(Commands::Provider { .. })
+            | Some(Commands::Status)
+            | Some(Commands::Inference { .. })
+            | Some(Commands::Doctor { .. })
+    )
+}
+
+fn load_snap_config() -> Option<HashMap<String, String>> {
+    if std::env::var("SNAP").is_err() {
+        return None;
+    }
+
+    let snap_data = std::env::var("SNAP_DATA").ok()?;
+    let config_path = std::path::Path::new(&snap_data).join("config.env");
+    let contents = std::fs::read_to_string(config_path).ok()?;
+    Some(parse_snap_config(&contents))
+}
+
+fn should_ignore_snap_gateway_endpoint(endpoint: &str) -> bool {
+    if !endpoint.starts_with("unix://") {
+        return false;
+    }
+
+    let Some(config) = load_snap_config() else {
+        return false;
+    };
+
+    matches!(config.get("DRIVER").map(String::as_str), Some("k8s")) && load_active_gateway().is_some()
+}
+
+fn parse_snap_config(contents: &str) -> HashMap<String, String> {
+    let mut values = HashMap::new();
+
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let Some((key, raw_value)) = trimmed.split_once('=') else {
+            continue;
+        };
+
+        let value = raw_value.trim().trim_matches('"').trim_matches('\'');
+        values.insert(key.trim().to_string(), value.to_string());
+    }
+
+    values
+}
+
+async fn maybe_auto_init_snap_k8s(command: &Option<Commands>) -> Result<()> {
+    if !command_needs_snap_k8s_auto_init(command) {
+        return Ok(());
+    }
+
+    if load_active_gateway().is_some() {
+        return Ok(());
+    }
+
+    let Some(config) = load_snap_config() else {
+        return Ok(());
+    };
+
+    let driver = config.get("DRIVER").map(String::as_str).unwrap_or("vm");
+    if driver != "k8s" {
+        return Ok(());
+    }
+
+    let Some(registry) = config.get("REGISTRY").filter(|value| !value.trim().is_empty()) else {
+        return Ok(());
+    };
+
+    eprintln!();
+    eprintln!(
+        "{} Initializing the configured Kubernetes gateway automatically.",
+        "ℹ".cyan().bold()
+    );
+    eprintln!("  Registry: {}", registry);
+    eprintln!();
+
+    openshell_bootstrap::k8s_init::init_external_cluster("openshell", registry).await?;
+    Ok(())
 }
 
 /// Apply edge authentication token from local storage when the gateway uses edge auth.
@@ -1712,6 +1807,8 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
     let tls = TlsOptions::default();
+
+    maybe_auto_init_snap_k8s(&cli.command).await?;
 
     // Set up logging based on verbosity
     let log_level = match cli.verbose {

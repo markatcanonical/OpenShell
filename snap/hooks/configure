@@ -25,20 +25,20 @@ if [ "$DRIVER" = "k8s" ]; then
         echo "Error: Driver k8s requires a registry (e.g., registry=localhost:5000)" >&2
         exit 1
     fi
-    
+
     # Validate registry (allow self-signed or plain HTTP for local test)
     echo "Validating registry at http://$REGISTRY/v2/ ..."
-    if ! curl -s -f "http://$REGISTRY/v2/" > /dev/null; then
+    if [ "$REGISTRY" = "localhost:5000" ] || [ "$REGISTRY" = "127.0.0.1:5000" ]; then
+        if ! curl -4 -fsS --max-time 2 "http://127.0.0.1:5000/v2/" > /dev/null 2>&1 && \
+           ! curl -4 -fsS --max-time 2 "http://localhost:5000/v2/" > /dev/null 2>&1; then
+            echo "Error: Failed to contact registry at http://$REGISTRY/v2/ (HTTP 200 required)" >&2
+            exit 1
+        fi
+    elif ! curl -fsS --max-time 2 "http://$REGISTRY/v2/" > /dev/null 2>&1; then
         echo "Error: Failed to contact registry at http://$REGISTRY/v2/ (HTTP 200 required)" >&2
         exit 1
     fi
 
-    # Attempt to initialize k8s cluster
-    echo "Initializing OpenShell Kubernetes Cluster..."
-    if ! "$SNAP/bin/openshell" cluster init --registry "$REGISTRY"; then
-        echo "Error: Failed to initialize Kubernetes cluster" >&2
-        exit 1
-    fi
 elif [ "$DRIVER" = "podman" ]; then
     if [ -n "$PODMAN_SOCKET" ]; then
         export OPENSHELL_PODMAN_SOCKET="$PODMAN_SOCKET"
@@ -65,3 +65,8 @@ EOF
 
 # Restart the gateway daemon
 snapctl restart openshell.server
+
+if [ "$DRIVER" = "k8s" ]; then
+    echo "OpenShell configured for k8s with registry $REGISTRY."
+    echo "Run 'openshell cluster init --registry $REGISTRY' as your user to finish Kubernetes setup."
+fi
