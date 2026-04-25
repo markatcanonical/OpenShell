@@ -25,9 +25,9 @@ sudo snap install rockcraft --classic
 sudo snap install mise --classic
 ```
 
-`umoci` is needed to extract OCI images.  `fakeroot` ensures that files in the Rock image have the correct owner.
+`umoci` is needed to extract OCI images.  `fakeroot` ensures that files in the Rock image have the correct owner.  `build-essential`, `libz3-dev`, `clang`, and `libclang-dev` are used for testing.
 ```
-sudo apt install umoci fakeroot -y
+sudo apt install umoci fakeroot build-essential libz3-dev clang libclang-dev -y
 ```
 
 You may need to initialize LXD if running on a new virtual machine:
