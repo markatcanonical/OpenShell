@@ -709,9 +709,8 @@ impl ComputeDriver for VmDriver {
 fn validate_vm_sandbox(sandbox: &Sandbox) -> Result<(), Status> {
     if let Err(e) = std::fs::OpenOptions::new().read(true).write(true).open("/dev/kvm") {
         if e.kind() == std::io::ErrorKind::PermissionDenied || e.kind() == std::io::ErrorKind::NotFound {
-            return Err(Status::failed_precondition(
-                "gateway does not have KVM permissions. To grant these permissions:\n\n              sudo snap connect openshell:kvm"
-            ));
+            let diagnostic = openshell_core::kvm::diagnose_missing_kvm();
+            return Err(Status::failed_precondition(diagnostic));
         }
         return Err(Status::failed_precondition(format!(
             "failed to access /dev/kvm: {e}"

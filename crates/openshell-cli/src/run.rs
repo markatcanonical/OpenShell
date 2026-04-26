@@ -2138,7 +2138,11 @@ pub async fn sandbox_create(
                 eprintln!();
                 std::process::exit(1);
             }
-            return Err(status).into_diagnostic();
+            if msg.is_empty() {
+                return Err(status).into_diagnostic();
+            } else {
+                return Err(miette::miette!("{msg}"));
+            }
         }
     };
     let sandbox = response

@@ -14,6 +14,7 @@ pub mod error;
 pub mod forward;
 pub mod image;
 pub mod inference;
+pub mod kvm;
 pub mod net;
 pub mod paths;
 pub mod proto;
