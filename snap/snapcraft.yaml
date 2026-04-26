@@ -28,6 +28,7 @@ apps:
       - network-bind
       - kube-config
       - home
+    completer: etc/bash_completion.d/snap.openshell
   gateway:
     command: bin/openshell-server-wrapper
     daemon: simple
@@ -97,6 +98,12 @@ parts:
       # Relay back to snapcraft.
       craftctl set grade="$grade"
       craftctl set version="$version"
+    override-build: |
+      craftctl default
+
+      mkdir -p ${CRAFT_PART_INSTALL}/etc/bash_completion.d/
+      ${CRAFT_PART_INSTALL}/bin/openshell completions bash > ${CRAFT_PART_INSTALL}/etc/bash_completion.d/snap.openshell
+
 
   vm-runtime:
     plugin: nil
