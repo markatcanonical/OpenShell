@@ -102,7 +102,7 @@ parts:
       craftctl default
 
       mkdir -p ${CRAFT_PART_INSTALL}/etc/bash_completion.d/
-      ${SNAPCRAFT_PART_INSTALL}/bin/openshell completions bash > ${SNAPCRAFT_PART_INSTALL}/etc/bash_completion.d/snap.openshell
+      ${CRAFT_PART_INSTALL}/bin/openshell completions bash > ${CRAFT_PART_INSTALL}/etc/bash_completion.d/snap.openshell
 
 
   vm-runtime:
