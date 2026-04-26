@@ -22,7 +22,6 @@ apps:
     command: bin/openshell
     environment:
       KUBECONFIG: $SNAP_REAL_HOME/.kube/config
-      OPENSHELL_GATEWAY_ENDPOINT: unix://$SNAP_COMMON/run/gateway.sock
     plugs:
       - network
       - network-bind
