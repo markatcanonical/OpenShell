@@ -28,7 +28,7 @@ apps:
       - network-bind
       - kube-config
       - home
-  server:
+  gateway:
     command: bin/openshell-server-wrapper
     daemon: simple
     environment:
@@ -38,14 +38,6 @@ apps:
       - network-bind
       - kube-config
       - kvm
-  cluster:
-    command: bin/openshell cluster
-    environment:
-      KUBECONFIG: $SNAP_REAL_HOME/.kube/config
-    plugs:
-      - network
-      - network-bind
-      - kube-config
 
 plugs:
   kube-config:
