@@ -20,6 +20,7 @@ use crate::pki;
 use std::io::Read;
 
 pub async fn init_external_cluster(
+    gateway_name: &str,
     namespace: &str,
     registry: &str,
     registry_username: Option<&str>,
@@ -271,7 +272,10 @@ pub async fn init_external_cluster(
         .arg("gateway")
         .arg(&chart_path)
         .arg("--namespace")
-        .arg(namespace);
+        .arg(namespace)
+        .arg("--wait")
+        .arg("--timeout")
+        .arg("2m");
 
     if images_loaded {
         if is_core_rock {
@@ -332,7 +336,7 @@ pub async fn init_external_cluster(
         .join(".config")
         .join("openshell")
         .join("gateways")
-        .join(namespace)
+        .join(gateway_name)
         .join("mtls");
     std::fs::create_dir_all(&mtls_dir).into_diagnostic()?;
 
@@ -342,10 +346,10 @@ pub async fn init_external_cluster(
 
     // 7. Save gateway metadata and set active gateway
     let metadata = crate::metadata::create_gateway_metadata(
-        namespace, None, 30051, // NodePort from gateway.yaml
+        gateway_name, None, 30051, // NodePort from gateway.yaml
     );
-    crate::metadata::store_gateway_metadata(namespace, &metadata)?;
-    crate::metadata::save_active_gateway(namespace)?;
+    crate::metadata::store_gateway_metadata(gateway_name, &metadata)?;
+    crate::metadata::save_active_gateway(gateway_name)?;
 
     Ok(())
 }
