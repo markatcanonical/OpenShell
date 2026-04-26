@@ -2130,7 +2130,16 @@ pub async fn sandbox_create(
                 status.message()
             ));
         }
-        Err(status) => return Err(status).into_diagnostic(),
+        Err(status) => {
+            let msg = status.message();
+            if msg.contains("gateway does not have KVM permissions") {
+                eprintln!();
+                eprintln!("ERROR: {}", msg);
+                eprintln!();
+                std::process::exit(1);
+            }
+            return Err(status).into_diagnostic();
+        }
     };
     let sandbox = response
         .into_inner()
