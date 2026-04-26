@@ -77,34 +77,45 @@ fn resolve_gateway(
         });
     }
 
-    let name = gateway_flag
+    let name_opt = gateway_flag
         .clone()
         .or_else(|| {
             std::env::var("OPENSHELL_GATEWAY")
                 .ok()
                 .filter(|v| !v.trim().is_empty())
         })
-        .or_else(load_active_gateway)
-        .ok_or_else(|| {
+        .or_else(load_active_gateway);
+
+    if let Some(name) = name_opt {
+        let metadata = load_gateway_metadata(&name).map_err(|_| {
             miette::miette!(
-                "No active gateway.\n\
-                 Set one with: openshell gateway select <name>\n\
-                 Or deploy a new gateway: openshell gateway start"
+                "Unknown gateway '{name}'.\n\
+                 Deploy it first: openshell gateway start --name {name}\n\
+                 Or list available gateways: openshell gateway select"
             )
         })?;
 
-    let metadata = load_gateway_metadata(&name).map_err(|_| {
-        miette::miette!(
-            "Unknown gateway '{name}'.\n\
-             Deploy it first: openshell gateway start --name {name}\n\
-             Or list available gateways: openshell gateway select"
-        )
-    })?;
+        return Ok(GatewayContext {
+            name: metadata.name,
+            endpoint: metadata.gateway_endpoint,
+        });
+    }
 
-    Ok(GatewayContext {
-        name: metadata.name,
-        endpoint: metadata.gateway_endpoint,
-    })
+    if let Ok(snap_common) = std::env::var("SNAP_COMMON") {
+        let sock_path = format!("{}/run/gateway.sock", snap_common);
+        if std::path::Path::new(&sock_path).exists() {
+            return Ok(GatewayContext {
+                name: "local-vm".to_string(),
+                endpoint: format!("unix://{}", sock_path),
+            });
+        }
+    }
+
+    Err(miette::miette!(
+        "No active gateway.\n\
+         Set one with: openshell gateway select <name>\n\
+         Or deploy a new gateway: openshell gateway start"
+    ))
 }
 
 /// Resolve only the gateway name (without requiring metadata to exist).
@@ -120,6 +131,15 @@ fn resolve_gateway_name(gateway_flag: &Option<String>) -> Option<String> {
                 .filter(|v| !v.trim().is_empty())
         })
         .or_else(load_active_gateway)
+        .or_else(|| {
+            if let Ok(snap_common) = std::env::var("SNAP_COMMON") {
+                let sock_path = format!("{}/run/gateway.sock", snap_common);
+                if std::path::Path::new(&sock_path).exists() {
+                    return Some("local-vm".to_string());
+                }
+            }
+            None
+        })
 }
 
 /// Apply edge authentication token from local storage when the gateway uses edge auth.
@@ -1771,7 +1791,12 @@ async fn main() -> Result<()> {
         }) => match command {
             ClusterCommands::Init { namespace, registry, registry_username, registry_token, registry_authfile, kubeconfig } => {
                 let gateway_name = match cli.gateway {
-                    Some(name) => name,
+                    Some(name) => {
+                        if name == "local-vm" {
+                            return Err(miette::miette!("The gateway name 'local-vm' is reserved."));
+                        }
+                        name
+                    },
                     None => return Err(miette::miette!("ERROR: --gateway is required to name the new K8s gateway")),
                 };
 
@@ -1888,6 +1913,10 @@ async fn main() -> Result<()> {
                 registry_token,
                 gpu,
             } => {
+                if name == "local-vm" {
+                    return Err(miette::miette!("The gateway name 'local-vm' is reserved."));
+                }
+                
                 let gpu = if gpu {
                     vec!["auto".to_string()]
                 } else {
@@ -1935,6 +1964,12 @@ async fn main() -> Result<()> {
                 ssh_key,
                 local,
             } => {
+                if let Some(n) = &name {
+                    if n == "local-vm" {
+                        return Err(miette::miette!("The gateway name 'local-vm' is reserved."));
+                    }
+                }
+                
                 run::gateway_add(
                     &endpoint,
                     name.as_deref(),
