@@ -627,6 +627,18 @@ enum ClusterCommands {
         /// The destination registry for stashing rocks.
         #[arg(long, required = true)]
         registry: String,
+
+        /// Registry username for authenticating pushes.
+        #[arg(long)]
+        registry_username: Option<String>,
+
+        /// Registry token/password for authenticating pushes.
+        #[arg(long)]
+        registry_token: Option<String>,
+
+        /// Path to a registry authentication file (e.g. docker config.json).
+        #[arg(long)]
+        registry_authfile: Option<String>,
     },
 }
 
@@ -1752,8 +1764,34 @@ async fn main() -> Result<()> {
         Some(Commands::Cluster {
             command: Some(command),
         }) => match command {
-            ClusterCommands::Init { namespace, registry } => {
-                openshell_bootstrap::k8s_init::init_external_cluster(&namespace, &registry).await?;
+            ClusterCommands::Init { namespace, registry, registry_username, registry_token, registry_authfile } => {
+                let effective_username = std::env::var("OPENSHELL_REGISTRY_USERNAME")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+                    .or(registry_username);
+
+                let effective_password = std::env::var("OPENSHELL_REGISTRY_TOKEN")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| {
+                        std::env::var("OPENSHELL_REGISTRY_PASSWORD")
+                            .ok()
+                            .filter(|s| !s.is_empty())
+                    })
+                    .or(registry_token);
+
+                let effective_authfile = std::env::var("OPENSHELL_REGISTRY_AUTHFILE")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+                    .or(registry_authfile);
+
+                openshell_bootstrap::k8s_init::init_external_cluster(
+                    &namespace,
+                    &registry,
+                    effective_username.as_deref(),
+                    effective_password.as_deref(),
+                    effective_authfile.as_deref()
+                ).await?;
                 println!("Cluster initialized successfully.");
             }
         },
