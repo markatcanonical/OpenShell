@@ -53,12 +53,6 @@ plugs:
     read:
       - $HOME/.kube/config
 
-hooks:
-  configure:
-    plugs:
-      - network
-      - network-bind
-      - kube-config
 
 parts:
   workspace:

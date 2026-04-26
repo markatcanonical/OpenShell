@@ -2,7 +2,21 @@
 
 This branch is a PoC of a simpler, more secure and more easily managed OpenShell install and distribution experience.
 
-The goal is this:
+The goal is this UX:
+
+## Get started with local MicroVM sandboxes:
+
+```
+sudo snap install openshell
+openshell create sandbox
+```
+
+That's it. Nothing else needed.
+
+## Add a K8s cluster as a place to run sandboxes
+
+```
+openshell gateways add k8s corp-agents 
 
 ```
 sudo snap install k8s --classic
@@ -98,6 +112,7 @@ openshell sandbox create
 
  - tests
  - figure out how best to provide certificates
+ - auto-connect openshell:kvm ?
  - slim down rootfs - chiselled rock?
  - figure out if we still need kube-config
  - properly rmeove K3s
@@ -108,4 +123,16 @@ openshell sandbox create
  - figure out if podman socket can be made visible to gateway
  - do better than process-control
  - documentation!
+
+
+
+WALKTHROUGH
+
+sudo snap install openshell
+openshell gateway list
+openshell sandbox list
+openshell sandbox create           # should error without KVM unless we get auto-connect
+sudo snap connect openshell:kvm
+openshell sandbox create           # should now succeed
+openshell sandbox list
 

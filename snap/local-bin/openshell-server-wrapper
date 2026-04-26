@@ -1,17 +1,7 @@
 #!/bin/bash
 set -e
 
-# Source the configuration if it exists
-if [ -f "$SNAP_DATA/config.env" ]; then
-    source "$SNAP_DATA/config.env"
-fi
 
-if [ "$DRIVER" = "k8s" ]; then
-    echo "Gateway is configured to run on K8s. Exiting local daemon gracefully."
-    # Exit 0 so snapd doesn't consider it a failure and restart loop it if restart-condition is on-failure
-    # By default, daemons with `daemon: simple` restart `on-failure`. Exiting 0 stops it cleanly.
-    exit 0
-fi
 
 # Ensure UDS dir exists
 mkdir -p "$SNAP_COMMON/run"
