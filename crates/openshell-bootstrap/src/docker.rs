@@ -701,11 +701,13 @@ pub async fn ensure_container(
             .filter(|u| !u.is_empty())
             .map(ToString::to_string)
     });
-    let effective_password = env_non_empty("OPENSHELL_REGISTRY_PASSWORD").or_else(|| {
-        registry_token
-            .filter(|t| !t.is_empty())
-            .map(ToString::to_string)
-    });
+    let effective_password = env_non_empty("OPENSHELL_REGISTRY_TOKEN")
+        .or_else(|| env_non_empty("OPENSHELL_REGISTRY_PASSWORD"))
+        .or_else(|| {
+            registry_token
+                .filter(|t| !t.is_empty())
+                .map(ToString::to_string)
+        });
 
     let mut env_vars: Vec<String> = vec![
         format!("REGISTRY_MODE={REGISTRY_MODE_EXTERNAL}"),

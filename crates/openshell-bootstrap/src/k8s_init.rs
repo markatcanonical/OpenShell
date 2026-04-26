@@ -19,7 +19,14 @@ use crate::constants::{
 use crate::pki;
 use std::io::Read;
 
-pub async fn init_external_cluster(namespace: &str, registry: &str) -> Result<()> {
+pub async fn init_external_cluster(
+    gateway_name: &str,
+    namespace: &str,
+    registry: &str,
+    registry_username: Option<&str>,
+    registry_token: Option<&str>,
+    registry_authfile: Option<&str>,
+) -> Result<()> {
     let client = Client::try_default()
         .await
         .into_diagnostic()
@@ -105,12 +112,82 @@ pub async fn init_external_cluster(namespace: &str, registry: &str) -> Result<()
 
         let snap_user_data = std::env::var("SNAP_USER_DATA").unwrap_or_else(|_| "/tmp".to_string());
 
+        let (authfile_path, _tmp_dir_guard) = if let Some(path) = registry_authfile {
+            (std::path::PathBuf::from(path), None)
+        } else {
+            // Validate and resolve credentials
+            let effective_username = match (registry_username, registry_token) {
+                (Some(u), Some(_)) => Some(u),
+                (None, Some(_)) => Some("__token__"),
+                (Some(_), None) => {
+                    return Err(miette::miette!(
+                        "A registry token/password must be provided when a username is specified."
+                    ));
+                }
+                (None, None) => None,
+            };
+
+            if let Some(token) = registry_token {
+                // Create tempdir for secure skopeo execution
+                let tmp_dir = tempfile::tempdir()
+                    .into_diagnostic()
+                    .context("Failed to create temporary directory for secure auth")?;
+                let authfile = tmp_dir.path().join("auth.json");
+
+                let u = effective_username.unwrap();
+                let mut login_cmd = std::process::Command::new("skopeo");
+                login_cmd
+                    .arg("login")
+                    .arg("--authfile")
+                    .arg(authfile.as_os_str())
+                    .arg("--username")
+                    .arg(u)
+                    .arg("--password-stdin")
+                    .arg(target_registry);
+                
+                // Pipe token to stdin
+                login_cmd.stdin(std::process::Stdio::piped());
+                login_cmd.stdout(std::process::Stdio::null());
+                login_cmd.stderr(std::process::Stdio::piped());
+
+                let mut child = login_cmd
+                    .spawn()
+                    .into_diagnostic()
+                    .context("Failed to spawn skopeo login")?;
+                if let Some(mut stdin) = child.stdin.take() {
+                    use std::io::Write;
+                    stdin.write_all(token.as_bytes()).into_diagnostic()?;
+                }
+                let status = child
+                    .wait()
+                    .into_diagnostic()
+                    .context("Failed to wait on skopeo login")?;
+                if !status.success() {
+                    return Err(miette::miette!(
+                        "Failed to authenticate with registry using skopeo login"
+                    ));
+                }
+                (authfile, Some(tmp_dir))
+            } else {
+                (std::path::PathBuf::new(), None)
+            }
+        };
+
+        let has_authfile = registry_authfile.is_some() || registry_token.is_some();
+
         if is_core_rock {
             let target_image = format!("{}/openshell-core:local", target_registry);
-            let status = std::process::Command::new("skopeo")
-                .arg("--insecure-policy")
+            
+            let mut cmd = std::process::Command::new("skopeo");
+            cmd.arg("--insecure-policy")
                 .arg("copy")
-                .arg("--dest-tls-verify=false")
+                .arg("--dest-tls-verify=false");
+                
+            if has_authfile {
+                cmd.arg("--authfile").arg(authfile_path.as_os_str());
+            }
+
+            let status = cmd
                 .arg(format!("--tmpdir={}", snap_user_data))
                 .arg(format!("oci-archive:{}", core_rock))
                 .arg(format!("docker://{}", target_image))
@@ -129,10 +206,16 @@ pub async fn init_external_cluster(namespace: &str, registry: &str) -> Result<()
             let target_gateway = format!("{}/openshell-gateway:dev", target_registry);
             let target_supervisor = format!("{}/openshell-supervisor:dev", target_registry);
 
-            let s1 = std::process::Command::new("skopeo")
-                .arg("--insecure-policy")
+            let mut cmd1 = std::process::Command::new("skopeo");
+            cmd1.arg("--insecure-policy")
                 .arg("copy")
-                .arg("--dest-tls-verify=false")
+                .arg("--dest-tls-verify=false");
+                
+            if has_authfile {
+                cmd1.arg("--authfile").arg(authfile_path.as_os_str());
+            }
+
+            let s1 = cmd1
                 .arg(format!("--tmpdir={}", snap_user_data))
                 .arg(format!("oci-archive:{}", gateway_tar))
                 .arg(format!("docker://{}", target_gateway))
@@ -140,10 +223,16 @@ pub async fn init_external_cluster(namespace: &str, registry: &str) -> Result<()
                 .stderr(std::process::Stdio::piped())
                 .status();
 
-            let s2 = std::process::Command::new("skopeo")
-                .arg("--insecure-policy")
+            let mut cmd2 = std::process::Command::new("skopeo");
+            cmd2.arg("--insecure-policy")
                 .arg("copy")
-                .arg("--dest-tls-verify=false")
+                .arg("--dest-tls-verify=false");
+                
+            if has_authfile {
+                cmd2.arg("--authfile").arg(authfile_path.as_os_str());
+            }
+
+            let s2 = cmd2
                 .arg(format!("--tmpdir={}", snap_user_data))
                 .arg(format!("oci-archive:{}", supervisor_tar))
                 .arg(format!("docker://{}", target_supervisor))
@@ -183,7 +272,10 @@ pub async fn init_external_cluster(namespace: &str, registry: &str) -> Result<()
         .arg("gateway")
         .arg(&chart_path)
         .arg("--namespace")
-        .arg(namespace);
+        .arg(namespace)
+        .arg("--wait")
+        .arg("--timeout")
+        .arg("2m");
 
     if images_loaded {
         if is_core_rock {
@@ -244,7 +336,7 @@ pub async fn init_external_cluster(namespace: &str, registry: &str) -> Result<()
         .join(".config")
         .join("openshell")
         .join("gateways")
-        .join(namespace)
+        .join(gateway_name)
         .join("mtls");
     std::fs::create_dir_all(&mtls_dir).into_diagnostic()?;
 
@@ -254,10 +346,10 @@ pub async fn init_external_cluster(namespace: &str, registry: &str) -> Result<()
 
     // 7. Save gateway metadata and set active gateway
     let metadata = crate::metadata::create_gateway_metadata(
-        namespace, None, 30051, // NodePort from gateway.yaml
+        gateway_name, None, 30051, // NodePort from gateway.yaml
     );
-    crate::metadata::store_gateway_metadata(namespace, &metadata)?;
-    crate::metadata::save_active_gateway(namespace)?;
+    crate::metadata::store_gateway_metadata(gateway_name, &metadata)?;
+    crate::metadata::save_active_gateway(gateway_name)?;
 
     Ok(())
 }

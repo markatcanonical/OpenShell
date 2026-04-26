@@ -627,6 +627,23 @@ enum ClusterCommands {
         /// The destination registry for stashing rocks.
         #[arg(long, required = true)]
         registry: String,
+
+        /// Registry username for authenticating pushes.
+        #[arg(long)]
+        registry_username: Option<String>,
+
+        /// Registry token/password for authenticating pushes.
+        #[arg(long)]
+        registry_token: Option<String>,
+
+        /// Path to a registry authentication file (e.g. docker config.json).
+        #[arg(long)]
+        registry_authfile: Option<String>,
+
+        /// Path to the kubeconfig file, or '-' to read from stdin.
+        /// If omitted, uses the KUBECONFIG environment variable or ~/.kube/config.
+        #[arg(long)]
+        kubeconfig: Option<String>,
     },
 }
 
@@ -1752,8 +1769,77 @@ async fn main() -> Result<()> {
         Some(Commands::Cluster {
             command: Some(command),
         }) => match command {
-            ClusterCommands::Init { namespace, registry } => {
-                openshell_bootstrap::k8s_init::init_external_cluster(&namespace, &registry).await?;
+            ClusterCommands::Init { namespace, registry, registry_username, registry_token, registry_authfile, kubeconfig } => {
+                let gateway_name = match cli.gateway {
+                    Some(name) => name,
+                    None => return Err(miette::miette!("ERROR: --gateway is required to name the new K8s gateway")),
+                };
+
+                let args: Vec<String> = std::env::args().collect();
+                if args.iter().any(|arg| arg == "--gateway-endpoint" || arg.starts_with("--gateway-endpoint=")) {
+                    return Err(miette::miette!("ERROR: no endpoint needed for k8s deployment, only --kubeconfig"));
+                }
+
+                if openshell_bootstrap::load_gateway_metadata(&gateway_name).is_ok() {
+                    return Err(miette::miette!("Gateway '{}' already exists.", gateway_name));
+                }
+
+                // Handle custom kubeconfig if provided
+                let mut _temp_kubeconfig: Option<tempfile::NamedTempFile> = None;
+                if let Some(config_path) = kubeconfig {
+                    if config_path == "-" {
+                        let mut buf = Vec::new();
+                        std::io::Read::read_to_end(&mut std::io::stdin(), &mut buf)
+                            .map_err(|e| miette::miette!("Failed to read kubeconfig from stdin: {}", e))?;
+                        
+                        let mut temp = tempfile::NamedTempFile::new()
+                            .map_err(|e| miette::miette!("Failed to create temporary file for kubeconfig: {}", e))?;
+                        std::io::Write::write_all(&mut temp, &buf)
+                            .map_err(|e| miette::miette!("Failed to write kubeconfig to temporary file: {}", e))?;
+                        
+                        // Keep the file alive for the duration of this command
+                        let path = temp.path().to_path_buf();
+                        _temp_kubeconfig = Some(temp);
+                        #[allow(unsafe_code)]
+                        unsafe {
+                            std::env::set_var("KUBECONFIG", path);
+                        }
+                    } else {
+                        #[allow(unsafe_code)]
+                        unsafe {
+                            std::env::set_var("KUBECONFIG", config_path);
+                        }
+                    }
+                }
+
+                let effective_username = std::env::var("OPENSHELL_REGISTRY_USERNAME")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+                    .or(registry_username);
+
+                let effective_password = std::env::var("OPENSHELL_REGISTRY_TOKEN")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| {
+                        std::env::var("OPENSHELL_REGISTRY_PASSWORD")
+                            .ok()
+                            .filter(|s| !s.is_empty())
+                    })
+                    .or(registry_token);
+
+                let effective_authfile = std::env::var("OPENSHELL_REGISTRY_AUTHFILE")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+                    .or(registry_authfile);
+
+                openshell_bootstrap::k8s_init::init_external_cluster(
+                    &gateway_name,
+                    &namespace,
+                    &registry,
+                    effective_username.as_deref(),
+                    effective_password.as_deref(),
+                    effective_authfile.as_deref()
+                ).await?;
                 println!("Cluster initialized successfully.");
             }
         },
