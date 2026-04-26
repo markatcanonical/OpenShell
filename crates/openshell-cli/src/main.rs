@@ -1775,7 +1775,8 @@ async fn main() -> Result<()> {
                     None => return Err(miette::miette!("ERROR: --gateway is required to name the new K8s gateway")),
                 };
 
-                if cli.gateway_endpoint.is_some() {
+                let args: Vec<String> = std::env::args().collect();
+                if args.iter().any(|arg| arg == "--gateway-endpoint" || arg.starts_with("--gateway-endpoint=")) {
                     return Err(miette::miette!("ERROR: no endpoint needed for k8s deployment, only --kubeconfig"));
                 }
 
