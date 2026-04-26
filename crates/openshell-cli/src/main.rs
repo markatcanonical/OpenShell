@@ -181,6 +181,8 @@ const HELP_TEMPLATE: &str = "\
   term:        Launch the OpenShell interactive TUI
   completions: Generate shell completions
   ssh-proxy:   SSH proxy (used by ProxyCommand)
+  cluster:     Manage Kubernetes cluster deployment
+  podman:      Manage Podman compute driver initialization
   help:        Print this message or the help of the given subcommand(s)
 
 \x1b[1mFLAGS\x1b[0m
@@ -1760,9 +1762,9 @@ async fn main() -> Result<()> {
         Some(Commands::Cluster { command: None }) => {
             Cli::command()
                 .find_subcommand_mut("cluster")
-                .unwrap()
+                .expect("cluster subcommand exists")
                 .print_help()
-                .map_err(|e| miette::miette!(e))?;
+                .expect("Failed to print help");
         }
 
         // -----------------------------------------------------------
@@ -1778,9 +1780,9 @@ async fn main() -> Result<()> {
         Some(Commands::Podman { command: None }) => {
             Cli::command()
                 .find_subcommand_mut("podman")
-                .unwrap()
+                .expect("podman subcommand exists")
                 .print_help()
-                .map_err(|e| miette::miette!(e))?;
+                .expect("Failed to print help");
         }
 
         // -----------------------------------------------------------
