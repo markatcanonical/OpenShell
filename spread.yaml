@@ -10,6 +10,13 @@ backends:
             if [ -n "${SPREAD_HOST_PATH-}" ]; then
                 PATH="${SPREAD_HOST_PATH}"
             fi
+
+            # On aarch64 hosts, ask qemu to enable nested virtualization.
+            # This is only supported on _some_ hosts but is really required by this project.
+            if [ "$(uname -m)" = aarch64 ]; then
+                export QEMU_ACCEL_MACHINE_PROP=",accel=kvm,virtualization=on"
+            fi
+
             export QEMU_MEM_OPTION="-m 6144"
             export QEMU_SMP_OPTION="-smp $(nproc)"
             exec image-garden allocate --spread "$SPREAD_SYSTEM"."$(uname -m)"
