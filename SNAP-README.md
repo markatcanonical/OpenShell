@@ -1,8 +1,14 @@
-# Walkthrough of OpenShell snap
+# OpenShell Snap
 
 This branch is a PoC of a simpler, more secure and more easily managed OpenShell install and distribution experience.
 
-The goal is this UX:
+The goal is this UX is to make it trivial for any user to get OpenShell and start working with it locally using
+VM sandboxes.
+
+If they want, they can also install a local K8s and registry, deploy the gateway and run sandboxes on that. The same
+commands work with a remote Kubernetes cluster.
+
+The snap can use Podman locally too.
 
 ## Get started with local MicroVM sandboxes:
 
@@ -11,17 +17,22 @@ sudo snap install openshell
 openshell create sandbox
 ```
 
-That's it. Nothing else needed.
+That's it. Nothing else needed. You are now able to create VM sandboxes locally.
 
 ## Add a K8s cluster as a place to run sandboxes
 
 ```
-openshell gateways add k8s corp-agents 
+cat kubeconfig.conf | openshell gateway deploy k8s company-agents --registry ocireg.company.com:5000 --kubeconfig -
+```
+
+This will verify both the registy and the Kubernetes credential, push the containers to the registry, 
 
 ```
 sudo snap install k8s --classic
+sudo snap install registry
+
 sudo k8s bootstrap
-sudo snap install registry openshell
+sudo k8s status --wait-ready
 
 openshell cluster init --registry localhost:5000
 openshell sandbox create
@@ -125,8 +136,52 @@ openshell sandbox create
  - documentation!
 
 
+# Developer Setup
 
-WALKTHROUGH
+```
+git clone...
+cd OpenShell
+
+sudo snap install lxd                            # Used for clean image builds
+sudo snap install rockcraft --classic            # Used for OCI and rootfs builds, in clean LXC containers
+sudo snap install snapcraft --classic            # Used for snap builds, in clean LXC containers
+sudo apt install umoci fakeroot
+
+sudo lxd init                                    # Say yes to the defaults, it will give you a ZFS backed cache for developer iteration
+```
+
+## First build
+
+```
+./tasks/scripts/vm/build-rockcraft-rootfs.sh     # This will build the sandbox VM rootfs using rockcraft
+./tasks/scripts/build-rock.sh                    # This will build the OCI used for gateway and supervisor
+./tasks/scripts/build-snap.sh                    # THis will build the snap; it needs both the VM rootfs and the rock above
+```
+
+## Install developer build
+
+```
+sudo snap install ./openshell_0+git.*_<arch>.snap --dangerous
+```
+
+Now you should be able to:
+
+
+## Sanity check
+
+You want to be using the ZFS storage driver for LXC for faster build iteration:
+
+```
+$ lxc storage list
++---------+--------+--------------------------------------------+-------------+---------+---------+
+|  NAME   | DRIVER |                   SOURCE                   | DESCRIPTION | USED BY |  STATE  |
++---------+--------+--------------------------------------------+-------------+---------+---------+
+| default | zfs    | /var/snap/lxd/common/lxd/disks/default.img |             | 5       | CREATED |
++---------+--------+--------------------------------------------+-------------+---------+---------+
+```
+
+
+# WALKTHROUGH
 
 sudo snap install openshell
 openshell gateway list
