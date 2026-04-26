@@ -664,6 +664,15 @@ enum ClusterCommands {
         /// If omitted, uses the KUBECONFIG environment variable or ~/.kube/config.
         #[arg(long)]
         kubeconfig: Option<String>,
+
+        /// Override the gateway host written into cluster metadata.
+        /// If not provided, it will be auto-discovered from the Kubernetes service.
+        #[arg(long)]
+        gateway_host: Option<String>,
+
+        /// Override the gateway port written into cluster metadata.
+        #[arg(long)]
+        gateway_port: Option<u16>,
     },
 }
 
@@ -1789,16 +1798,13 @@ async fn main() -> Result<()> {
         Some(Commands::Cluster {
             command: Some(command),
         }) => match command {
-            ClusterCommands::Init { namespace, registry, registry_username, registry_token, registry_authfile, kubeconfig } => {
-                let gateway_name = match cli.gateway {
-                    Some(name) => {
-                        if name == "local-vm" {
-                            return Err(miette::miette!("The gateway name 'local-vm' is reserved."));
-                        }
-                        name
-                    },
-                    None => return Err(miette::miette!("ERROR: --gateway is required to name the new K8s gateway")),
-                };
+            ClusterCommands::Init { namespace, registry, registry_username, registry_token, registry_authfile, kubeconfig, gateway_host, gateway_port } => {
+                let gateway_name = resolve_gateway_name(&cli.gateway)
+                    .unwrap_or_else(|| "openshell".to_string());
+                
+                if gateway_name == "local-vm" {
+                    return Err(miette::miette!("The gateway name 'local-vm' is reserved."));
+                }
 
                 let args: Vec<String> = std::env::args().collect();
                 if args.iter().any(|arg| arg == "--gateway-endpoint" || arg.starts_with("--gateway-endpoint=")) {
@@ -1806,7 +1812,7 @@ async fn main() -> Result<()> {
                 }
 
                 if openshell_bootstrap::load_gateway_metadata(&gateway_name).is_ok() {
-                    return Err(miette::miette!("Gateway '{}' already exists.", gateway_name));
+                    println!("Gateway '{}' already exists. Re-initializing...", gateway_name);
                 }
 
                 // Handle custom kubeconfig if provided
@@ -1863,7 +1869,9 @@ async fn main() -> Result<()> {
                     &registry,
                     effective_username.as_deref(),
                     effective_password.as_deref(),
-                    effective_authfile.as_deref()
+                    effective_authfile.as_deref(),
+                    gateway_host.as_deref(),
+                    gateway_port,
                 ).await?;
                 println!("Cluster initialized successfully.");
             }

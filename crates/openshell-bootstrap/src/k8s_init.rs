@@ -26,6 +26,8 @@ pub async fn init_external_cluster(
     registry_username: Option<&str>,
     registry_token: Option<&str>,
     registry_authfile: Option<&str>,
+    gateway_host: Option<&str>,
+    gateway_port: Option<u16>,
 ) -> Result<()> {
     let client = Client::try_default()
         .await
@@ -344,9 +346,31 @@ pub async fn init_external_cluster(
     std::fs::write(mtls_dir.join("tls.key"), &bundle.client_key_pem).into_diagnostic()?;
     std::fs::write(mtls_dir.join("ca.crt"), &bundle.ca_cert_pem).into_diagnostic()?;
 
-    // 7. Save gateway metadata and set active gateway
-    let metadata = crate::metadata::create_gateway_metadata(
-        gateway_name, None, 30051, // NodePort from gateway.yaml
+    // 7. Discover and save gateway metadata
+    let (final_host, final_port) = match (gateway_host, gateway_port) {
+        (Some(h), Some(p)) => (h.to_string(), p),
+        _ => {
+            tracing::info!("Discovering gateway endpoint from cluster...");
+            // Wait briefly to allow K8s to create the service
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            
+            if let Some((discovered_host, discovered_port)) = discover_gateway_endpoint(client.clone(), namespace).await {
+                let h = gateway_host.unwrap_or(&discovered_host).to_string();
+                let p = gateway_port.unwrap_or(discovered_port);
+                tracing::info!("Discovered gateway endpoint: {}:{}", h, p);
+                (h, p)
+            } else {
+                tracing::warn!("Could not discover gateway endpoint from Kubernetes. Falling back to 127.0.0.1:30051.");
+                (
+                    gateway_host.unwrap_or("127.0.0.1").to_string(),
+                    gateway_port.unwrap_or(30051)
+                )
+            }
+        }
+    };
+
+    let metadata = crate::metadata::create_gateway_metadata_with_host(
+        gateway_name, None, final_port, Some(&final_host), false
     );
     crate::metadata::store_gateway_metadata(gateway_name, &metadata)?;
     crate::metadata::save_active_gateway(gateway_name)?;
@@ -536,4 +560,65 @@ async fn ensure_server_client_ca_secret(
         .context("failed to apply server client CA secret")?;
 
     Ok(())
+}
+
+async fn discover_gateway_endpoint(client: Client, namespace: &str) -> Option<(String, u16)> {
+    use k8s_openapi::api::core::v1::{Service, Node};
+    
+    let services: Api<Service> = Api::namespaced(client.clone(), namespace);
+    let svc = services.get("gateway-openshell").await.ok()?;
+    
+    // Check LoadBalancer first
+    if let Some(status) = svc.status {
+        if let Some(lb) = status.load_balancer {
+            if let Some(ingress) = lb.ingress {
+                for ing in ingress {
+                    if let Some(ip) = ing.ip {
+                        return Some((ip, 8080));
+                    }
+                    if let Some(hostname) = ing.hostname {
+                        return Some((hostname, 8080));
+                    }
+                }
+            }
+        }
+    }
+    
+    // If not LoadBalancer (or no ingress IP yet), fall back to Node IPs for NodePort
+    let mut node_port = 30051;
+    if let Some(spec) = svc.spec {
+        if let Some(ports) = spec.ports {
+            if let Some(port) = ports.iter().find(|p| p.name == Some("grpc".to_string()) || p.port == 8080) {
+                if let Some(np) = port.node_port {
+                    node_port = np as u16;
+                }
+            }
+        }
+    }
+
+    let nodes: Api<Node> = Api::all(client);
+    if let Ok(node_list) = nodes.list(&kube::api::ListParams::default()).await {
+        for node in node_list {
+            if let Some(status) = node.status {
+                if let Some(addresses) = status.addresses {
+                    let mut ext_ip = None;
+                    let mut int_ip = None;
+                    for addr in addresses {
+                        if addr.type_ == "ExternalIP" {
+                            ext_ip = Some(addr.address);
+                        } else if addr.type_ == "InternalIP" {
+                            int_ip = Some(addr.address);
+                        }
+                    }
+                    if let Some(ip) = ext_ip {
+                        return Some((ip, node_port));
+                    }
+                    if let Some(ip) = int_ip {
+                        return Some((ip, node_port));
+                    }
+                }
+            }
+        }
+    }
+    None
 }
