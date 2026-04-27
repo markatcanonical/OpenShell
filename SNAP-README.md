@@ -1,12 +1,14 @@
 # OpenShell Snap
 
-This branch is a PoC of a simpler, more secure and more easily managed OpenShell install and distribution experience.
+This branch is a PoC of a simpler, more secure and easily managed OpenShell
+install, update and distribution experience.
 
-The goal is this UX is to make it trivial for any user to get OpenShell and start working with it locally using
-VM sandboxes.
+The goal is this UX is to make it trivial for any user to get OpenShell and
+start working with it locally using VM sandboxes.
 
-If they want, they can also install a local K8s and registry, deploy the gateway and run sandboxes on that. The same
-commands work with a remote Kubernetes cluster.
+If they want, they can also install a local K8s and registry, deploy the
+gateway and run sandboxes on that. The same commands work with a remote
+Kubernetes cluster.
 
 The snap can use Podman locally too.
 
@@ -17,120 +19,100 @@ sudo snap install openshell
 openshell create sandbox
 ```
 
-That's it. Nothing else needed. You are now able to create VM sandboxes locally.
+That's it. Nothing else is needed if your machine supports KVM. You are now
+able to create VM sandboxes locally.
 
 ## Add a K8s cluster as a place to run sandboxes
 
+You might want to use Kubernetes to host sandboxes, particularly if your
+machine does not support KVM (for example a cloud VM that does not have nested
+virt support).
+
+The `openshell` CLI can deploy its gateway to K8s directly, given a registry
+and a kubeconfig file. The command to deploy is:
+
 ```
-cat kubeconfig.conf | openshell gateway deploy k8s company-agents --registry ocireg.company.com:5000 --kubeconfig -
+  openshell cluster init --registry <endpoint> --kubeconfig <filename>
+                        [[--registry-username <user>] [--registry-token <token>]] [--registry-authfile <filename>]
 ```
 
-This will verify both the registy and the Kubernetes credential, push the containers to the registry, 
+For example, this command will deploy to a local K8s cluster on Ubuntu:
 
 ```
-sudo snap install k8s --classic
+sudo cat /etc/kubernetes/admin.conf | openshell cluster init --gateway local-k8s --registry localhost:5000 --kubeconfig -
+```
+
+This will verify both the registy and the Kubernetes credential, push images to
+the registry, deploy a daemonset that provides a custom AppArmor profile for
+the supervisor, and run the gateway service. It will then register this client
+so that it can create sandboxes on that Kubernetes.
+
+Here is the simplest way to setup K8s on Ubuntu:
+
+```
+sudo snap install k8s --classic --channel=1.35-classic            # The tested version is 1.35
 sudo snap install registry
 
 sudo k8s bootstrap
 sudo k8s status --wait-ready
+```
 
-openshell cluster init --registry localhost:5000
+At this stage you should have a K8s running locally, with the admin
+configuration in `/etc/kubernetes/admin.conf` and a Docker registry running on
+localhost:5000.  If you want, test it out:
+
+```
+sudo snap install kubectl --classic
+sudo kubectl get nodes --kubeconfig=/etc/kubernetes/admin.conf
+```
+
+We can deploy the OpenShell gateway on that cluster:
+
+```
+sudo cat /etc/kubernetes/admin.conf | openshell cluster init --gateway local-k8s --registry localhost:5000 --kubeconfig -
+openshell gateway select --list
 openshell sandbox create
 ```
 
-This could be a `curl | bash` script but we don't publish those as a recommended practice :)
-
 ## Build it
 
-You need `rockcraft` and `snapcraft` to build the Docker image and snap respectively.
+You need `rockcraft` and `snapcraft` to build the rock (OCI) and snap respectively.
 
 ```
 sudo snap install snapcraft --classic
 sudo snap install rockcraft --classic
 ```
 
+We build three artifacts in order:
 
-This will build a rock (docker image) and then a snap which bundles that rock. Bundling the rock is a short term thing,
-we will shortly be able to attach the rock as a resource for the snap, which can be pulled dynamically (and updated
-independently).
+```
+./tasks/scripts/vm/build-rockcraft-rootfs.sh
+./tasks/scripts/build-rock.sh
+./tasks/scripts/build-snap.sh
+```
 
-  `./tasks/scripts/build-snap.sh`
+This will build a rock (docker image) and then a snap which bundles that rock.
+Bundling the rock is a short term thing, we will shortly be able to attach the
+rock as a resource for the snap, which can be pulled dynamically and updated
+independently.
 
-I think Gemini also integrated build:snap into the mise tooling but I don't know mise so haven't tried to exercise that.
-
-You should now see `openshell_<version>_<architecture>.snap` in the top-level directory. Since it has just been built
-locally it is not signed, so Ubuntu will not trust it by default. You need to install it with the `--dangerous` flag to
-acknowledge that:
+You should now see `openshell_<version>_<architecture>.snap` in the top-level
+directory. Since it has just been built locally it is not signed, so Ubuntu
+will not trust it by default. You need to install it with the `--dangerous`
+flag to acknowledge that:
 
 ```
 sudo snap install ./openshell_<v>_<arch>.snap --dangerous
-sudo snap connect openshell:kube-config
 ```
-
-All of this would become `sudo snap install openshell` for a user once openshell is published in the store.
-
-## Use it
-
-You need K8s:
-
-```
-sudo snap install k8s --classic --channel=1.35-classic
-sudo k8s bootstrap
-sudo k8s status --wait-ready
-mkdir $HOME/.kube
-sudo cp /etc/kubernetes/admin.conf $HOME/.kube/config
-sudo chown $USER:$USER .kube/config
-```
-
-You should see a clean running k8s. If you want, test it out:
-
-```
-sudo snap install kubectl --classic --channel=1.35
-kubectl get nodes
-```
-
-You need a Docker image registry:
-
-```
-sudo snap install registry
-```
-
-The registry should now be running on localhost:5000, feel free to test it with your fave OCI tools.
-
-Now you need to initialize the cluster. This puts a daemonset on the k8s which installs a custom-written AppArmor profile
-for the supervisor container. That gives the supervisor (and only the supervisor) the permissions it needs to setup
-the sandboxes.
-
-```
-openshell cluster init --registry=localhost:5000
-```
-
-You should see a successful initialization. In theory this would work against a different registry, but you would also
-need to configure your K8s to trust that registry. We're using a localhost K8s and a localhost registry in this walkthrough
-so it should Just Work.
-
-Now you can make a sandbox:
-
-```
-openshell sandbox create
-```
-
-... should drop you into a sandbox running on k8s.
-
 
 
 # TODO
 
  - tests
- - figure out how best to provide certificates
- - auto-connect openshell:kvm ?
- - slim down rootfs - chiselled rock?
+ - slim down VM rootfs - chiselled rock?
  - figure out if we still need kube-config
- - properly rmeove K3s
- - merge `openshell cluster init` and `openshell podman init` into `openshell-setup` that takes all the right flavour-specific parameters
- - chisel the k8s openshell-core rock
- - rename openshell.server to openshell.gateway
- - perhaps `openshell k8s init` would be more accurate now with Podman included in tree
+ - properly remove K3s from image-building tangle
+ - merge `openshell cluster init` and `openshell podman init` into `openshell gateway start` that takes all the right flavour-specific parameters
  - figure out if podman socket can be made visible to gateway
  - do better than process-control
  - documentation!
@@ -161,11 +143,8 @@ sudo lxd init                                    # Say yes to the defaults, it w
 ## Install developer build
 
 ```
-sudo snap install ./openshell_0+git.*_<arch>.snap --dangerous
+sudo snap install ./openshell_<version>_<arch>.snap --dangerous
 ```
-
-Now you should be able to:
-
 
 ## Sanity check
 
