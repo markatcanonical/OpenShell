@@ -45,6 +45,7 @@ fi
 exec "$SNAP/bin/openshell-gateway" \
 	--db-url "sqlite:$SNAP_DATA/openshell.db" \
 	--drivers "${DRIVER:-vm}" \
+	--vm-driver-state-dir "${SNAP_COMMON}/target/openshell-vm-driver" \
 	"${UDS_ARGS[@]}" \
 	"${TLS_ARGS[@]}" \
 	"${SSH_SECRET_ARGS[@]}" \
