@@ -63,8 +63,16 @@ debug-each: |
     echo "Installed snaps:"
     snap list
 
+    set +e
+
+    echo "Configuration of the openshell snap:"
+    snap get openshell
+
+    echo "Snap connections of the openshell snap:"
+    snap connections openshell
+
     echo "Openshell version:"
-    snap run openshell --version || true
+    snap run openshell --version
 
 suites:
     tests/smoke/:
