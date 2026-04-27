@@ -1745,7 +1745,7 @@ pub async fn gateway_admin_destroy(
 }
 
 /// Show gateway deployment details.
-pub fn gateway_admin_info(name: &str) -> Result<()> {
+pub async fn gateway_admin_info(name: &str, tls: &TlsOptions) -> Result<()> {
     let metadata = get_gateway_metadata(name).ok_or_else(|| {
         miette::miette!(
             "No gateway metadata found for '{name}'.\n\
@@ -1753,12 +1753,25 @@ pub fn gateway_admin_info(name: &str) -> Result<()> {
         )
     })?;
 
+    let status_str = {
+        let statuses = fetch_gateway_statuses(&[metadata.clone()], tls).await;
+        statuses.into_iter().next().unwrap_or_else(|| "Unknown".to_string())
+    };
+
+    let status_display = match status_str.as_str() {
+        "OK" => "OK".green().to_string(),
+        "Stopped" => "Stopped".dimmed().to_string(),
+        s if s.starts_with("Error") => s.red().to_string(),
+        s => s.yellow().to_string(),
+    };
+
     println!("{}", "Gateway Info".cyan().bold());
     println!();
-    println!("  {} {}", "Gateway:".dimmed(), metadata.name);
+    println!("  {} {}", "Gateway: ".dimmed(), metadata.name);
+    println!("  {} {}", "Status:  ".dimmed(), status_display);
     println!(
         "  {} {}",
-        "Gateway endpoint:".dimmed(),
+        "Endpoint:".dimmed(),
         metadata.gateway_endpoint
     );
 

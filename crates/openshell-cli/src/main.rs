@@ -1986,7 +1986,7 @@ async fn main() -> Result<()> {
                 let name = name
                     .or_else(|| resolve_gateway_name(&cli.gateway))
                     .unwrap_or_else(|| "openshell".to_string());
-                run::gateway_admin_info(&name)?;
+                run::gateway_admin_info(&name, &tls).await?;
             }
         },
 
