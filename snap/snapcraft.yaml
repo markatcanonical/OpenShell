@@ -45,9 +45,9 @@ plugs:
     read:
       - $HOME/.kube/config
 
-layout:
-  /etc/containers:
-    bind: $SNAP/etc/containers
+        #layout:
+        #  /etc/containers:
+        #    bind: $SNAP/etc/containers
 
 
 parts:
@@ -108,8 +108,8 @@ parts:
       ${CRAFT_PART_INSTALL}/bin/openshell completions bash > ${CRAFT_PART_INSTALL}/etc/bash_completion.d/snap.openshell
 
       # Provide an empty registries.conf to avoid skopeo permission denied errors in strict confinement
-      mkdir -p ${CRAFT_PART_INSTALL}/etc/containers
-      touch ${CRAFT_PART_INSTALL}/etc/containers/registries.conf
+      #mkdir -p ${CRAFT_PART_INSTALL}/etc/containers
+      #touch ${CRAFT_PART_INSTALL}/etc/containers/registries.conf
 
 
   vm-runtime:

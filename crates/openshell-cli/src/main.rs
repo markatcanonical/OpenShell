@@ -1797,9 +1797,6 @@ async fn main() -> Result<()> {
                     return Err(miette::miette!("ERROR: no endpoint needed for k8s deployment, only --kubeconfig"));
                 }
 
-                if openshell_bootstrap::load_gateway_metadata(&gateway_name).is_ok() {
-                    return Err(miette::miette!("Gateway '{}' already exists.", gateway_name));
-                }
 
                 // Handle custom kubeconfig if provided
                 let mut _temp_kubeconfig: Option<tempfile::NamedTempFile> = None;
