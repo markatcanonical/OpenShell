@@ -247,6 +247,26 @@ pub fn store_gateway_metadata(name: &str, metadata: &GatewayMetadata) -> Result<
 
 pub fn load_gateway_metadata(name: &str) -> Result<GatewayMetadata> {
     let path = stored_metadata_path(name)?;
+    
+    if !path.exists() && name == "local-vm" && std::env::var("SNAP").is_ok() {
+        let endpoint = std::env::var("OPENSHELL_GATEWAY_ENDPOINT").unwrap_or_else(|_| {
+            let snap_common = std::env::var("SNAP_COMMON")
+                .unwrap_or_else(|_| "/var/snap/openshell/common".to_string());
+            format!("unix://{snap_common}/run/gateway.sock")
+        });
+        return Ok(GatewayMetadata {
+            name: "local-vm".to_string(),
+            gateway_endpoint: endpoint,
+            is_remote: false,
+            gateway_port: 0,
+            remote_host: None,
+            resolved_host: None,
+            auth_mode: None,
+            edge_team_domain: None,
+            edge_auth_url: None,
+        });
+    }
+
     let contents = std::fs::read_to_string(&path)
         .into_diagnostic()
         .wrap_err_with(|| format!("failed to read metadata from {}", path.display()))?;
@@ -320,24 +340,29 @@ pub fn clear_last_sandbox_if_matches(gateway: &str, sandbox: &str) {
 /// `metadata.json` and returns the parsed metadata for each.
 pub fn list_gateways() -> Result<Vec<GatewayMetadata>> {
     let dir = gateways_dir()?;
-    if !dir.exists() {
-        return Ok(Vec::new());
+    let mut gateways = Vec::new();
+    
+    if dir.exists() {
+        let entries = std::fs::read_dir(&dir)
+            .into_diagnostic()
+            .wrap_err_with(|| format!("failed to read directory {}", dir.display()))?;
+
+        for entry in entries {
+            let entry = entry.into_diagnostic()?;
+            let path = entry.path();
+            // Only consider directories that contain a metadata.json file
+            if path.is_dir() {
+                let gateway_name = entry.file_name().to_string_lossy().to_string();
+                if let Ok(metadata) = load_gateway_metadata(&gateway_name) {
+                    gateways.push(metadata);
+                }
+            }
+        }
     }
 
-    let mut gateways = Vec::new();
-    let entries = std::fs::read_dir(&dir)
-        .into_diagnostic()
-        .wrap_err_with(|| format!("failed to read directory {}", dir.display()))?;
-
-    for entry in entries {
-        let entry = entry.into_diagnostic()?;
-        let path = entry.path();
-        // Only consider directories that contain a metadata.json file
-        if path.is_dir() {
-            let gateway_name = entry.file_name().to_string_lossy().to_string();
-            if let Ok(metadata) = load_gateway_metadata(&gateway_name) {
-                gateways.push(metadata);
-            }
+    if std::env::var("SNAP").is_ok() && !gateways.iter().any(|g| g.name == "local-vm") {
+        if let Ok(metadata) = load_gateway_metadata("local-vm") {
+            gateways.push(metadata);
         }
     }
 

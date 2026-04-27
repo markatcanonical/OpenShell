@@ -42,7 +42,7 @@ parts:
     override-pull: |
       craftctl default
       # Set version to git describe or short commit hash
-      craftctl set version=$(git describe --tags --abbrev=10 || git rev-parse --short HEAD)
+      craftctl set version=$(git branch --show-current | tr '/' '-')-g$(git rev-parse --short HEAD)
 
   scripts:
     plugin: nil

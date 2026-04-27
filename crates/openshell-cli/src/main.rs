@@ -77,34 +77,45 @@ fn resolve_gateway(
         });
     }
 
-    let name = gateway_flag
+    let name_opt = gateway_flag
         .clone()
         .or_else(|| {
             std::env::var("OPENSHELL_GATEWAY")
                 .ok()
                 .filter(|v| !v.trim().is_empty())
         })
-        .or_else(load_active_gateway)
-        .ok_or_else(|| {
+        .or_else(load_active_gateway);
+
+    if let Some(name) = name_opt {
+        let metadata = load_gateway_metadata(&name).map_err(|_| {
             miette::miette!(
-                "No active gateway.\n\
-                 Set one with: openshell gateway select <name>\n\
-                 Or deploy a new gateway: openshell gateway start"
+                "Unknown gateway '{name}'.\n\
+                 Deploy it first: openshell gateway start --name {name}\n\
+                 Or list available gateways: openshell gateway select"
             )
         })?;
 
-    let metadata = load_gateway_metadata(&name).map_err(|_| {
-        miette::miette!(
-            "Unknown gateway '{name}'.\n\
-             Deploy it first: openshell gateway start --name {name}\n\
-             Or list available gateways: openshell gateway select"
-        )
-    })?;
+        return Ok(GatewayContext {
+            name: metadata.name,
+            endpoint: metadata.gateway_endpoint,
+        });
+    }
 
-    Ok(GatewayContext {
-        name: metadata.name,
-        endpoint: metadata.gateway_endpoint,
-    })
+    if let Ok(snap_common) = std::env::var("SNAP_COMMON") {
+        let sock_path = format!("{}/run/gateway.sock", snap_common);
+        if std::path::Path::new(&sock_path).exists() {
+            return Ok(GatewayContext {
+                name: "local-vm".to_string(),
+                endpoint: format!("unix://{}", sock_path),
+            });
+        }
+    }
+
+    Err(miette::miette!(
+        "No active gateway.\n\
+         Set one with: openshell gateway select <name>\n\
+         Or deploy a new gateway: openshell gateway start"
+    ))
 }
 
 /// Resolve only the gateway name (without requiring metadata to exist).
@@ -120,21 +131,18 @@ fn resolve_gateway_name(gateway_flag: &Option<String>) -> Option<String> {
                 .filter(|v| !v.trim().is_empty())
         })
         .or_else(load_active_gateway)
+        .or_else(|| {
+            if let Ok(snap_common) = std::env::var("SNAP_COMMON") {
+                let sock_path = format!("{}/run/gateway.sock", snap_common);
+                if std::path::Path::new(&sock_path).exists() {
+                    return Some("local-vm".to_string());
+                }
+            }
+            None
+        })
 }
 
-/// Apply edge authentication token from local storage when the gateway uses edge auth.
-///
-/// When the resolved gateway has `auth_mode == "cloudflare_jwt"`, loads the
-/// stored edge token from disk and sets it on the `TlsOptions`. The token is
-/// always read from gateway metadata rather than supplied via a CLI flag.
-fn apply_edge_auth(tls: &mut TlsOptions, gateway_name: &str) {
-    if let Some(meta) = get_gateway_metadata(gateway_name)
-        && meta.auth_mode.as_deref() == Some("cloudflare_jwt")
-        && let Some(token) = load_edge_token(gateway_name)
-    {
-        tls.edge_token = Some(token);
-    }
-}
+
 
 /// Resolve a sandbox name, falling back to the last-used sandbox for the gateway.
 ///
@@ -627,6 +635,23 @@ enum ClusterCommands {
         /// The destination registry for stashing rocks.
         #[arg(long, required = true)]
         registry: String,
+
+        /// Registry username for authenticating pushes.
+        #[arg(long)]
+        registry_username: Option<String>,
+
+        /// Registry token/password for authenticating pushes.
+        #[arg(long)]
+        registry_token: Option<String>,
+
+        /// Path to a registry authentication file (e.g. docker config.json).
+        #[arg(long)]
+        registry_authfile: Option<String>,
+
+        /// Path to the kubeconfig file, or '-' to read from stdin.
+        /// If omitted, uses the KUBECONFIG environment variable or ~/.kube/config.
+        #[arg(long)]
+        kubeconfig: Option<String>,
     },
 }
 
@@ -958,6 +983,10 @@ enum GatewayCommands {
         /// Gateway name (omit to choose interactively or list in non-interactive mode).
         #[arg(add = ArgValueCompleter::new(completers::complete_gateway_names))]
         name: Option<String>,
+
+        /// Print the list of available gateways and exit.
+        #[arg(long)]
+        list: bool,
     },
 
     /// Show gateway deployment details.
@@ -1752,8 +1781,79 @@ async fn main() -> Result<()> {
         Some(Commands::Cluster {
             command: Some(command),
         }) => match command {
-            ClusterCommands::Init { namespace, registry } => {
-                openshell_bootstrap::k8s_init::init_external_cluster(&namespace, &registry).await?;
+            ClusterCommands::Init { namespace, registry, registry_username, registry_token, registry_authfile, kubeconfig } => {
+                let gateway_name = match cli.gateway {
+                    Some(name) => {
+                        if name == "local-vm" {
+                            return Err(miette::miette!("The gateway name 'local-vm' is reserved."));
+                        }
+                        name
+                    },
+                    None => return Err(miette::miette!("ERROR: --gateway is required to name the new K8s gateway")),
+                };
+
+                let args: Vec<String> = std::env::args().collect();
+                if args.iter().any(|arg| arg == "--gateway-endpoint" || arg.starts_with("--gateway-endpoint=")) {
+                    return Err(miette::miette!("ERROR: no endpoint needed for k8s deployment, only --kubeconfig"));
+                }
+
+
+                // Handle custom kubeconfig if provided
+                let mut _temp_kubeconfig: Option<tempfile::NamedTempFile> = None;
+                if let Some(config_path) = kubeconfig {
+                    if config_path == "-" {
+                        let mut buf = Vec::new();
+                        std::io::Read::read_to_end(&mut std::io::stdin(), &mut buf)
+                            .map_err(|e| miette::miette!("Failed to read kubeconfig from stdin: {}", e))?;
+                        
+                        let mut temp = tempfile::NamedTempFile::new()
+                            .map_err(|e| miette::miette!("Failed to create temporary file for kubeconfig: {}", e))?;
+                        std::io::Write::write_all(&mut temp, &buf)
+                            .map_err(|e| miette::miette!("Failed to write kubeconfig to temporary file: {}", e))?;
+                        
+                        // Keep the file alive for the duration of this command
+                        let path = temp.path().to_path_buf();
+                        _temp_kubeconfig = Some(temp);
+                        #[allow(unsafe_code)]
+                        unsafe {
+                            std::env::set_var("KUBECONFIG", path);
+                        }
+                    } else {
+                        #[allow(unsafe_code)]
+                        unsafe {
+                            std::env::set_var("KUBECONFIG", config_path);
+                        }
+                    }
+                }
+
+                let effective_username = std::env::var("OPENSHELL_REGISTRY_USERNAME")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+                    .or(registry_username);
+
+                let effective_password = std::env::var("OPENSHELL_REGISTRY_TOKEN")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| {
+                        std::env::var("OPENSHELL_REGISTRY_PASSWORD")
+                            .ok()
+                            .filter(|s| !s.is_empty())
+                    })
+                    .or(registry_token);
+
+                let effective_authfile = std::env::var("OPENSHELL_REGISTRY_AUTHFILE")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+                    .or(registry_authfile);
+
+                openshell_bootstrap::k8s_init::init_external_cluster(
+                    &gateway_name,
+                    &namespace,
+                    &registry,
+                    effective_username.as_deref(),
+                    effective_password.as_deref(),
+                    effective_authfile.as_deref()
+                ).await?;
                 println!("Cluster initialized successfully.");
             }
         },
@@ -1802,6 +1902,10 @@ async fn main() -> Result<()> {
                 registry_token,
                 gpu,
             } => {
+                if name == "local-vm" {
+                    return Err(miette::miette!("The gateway name 'local-vm' is reserved."));
+                }
+                
                 let gpu = if gpu {
                     vec!["auto".to_string()]
                 } else {
@@ -1849,6 +1953,12 @@ async fn main() -> Result<()> {
                 ssh_key,
                 local,
             } => {
+                if let Some(n) = &name {
+                    if n == "local-vm" {
+                        return Err(miette::miette!("The gateway name 'local-vm' is reserved."));
+                    }
+                }
+                
                 run::gateway_add(
                     &endpoint,
                     name.as_deref(),
@@ -1870,14 +1980,14 @@ async fn main() -> Result<()> {
                     })?;
                 run::gateway_login(&name).await?;
             }
-            GatewayCommands::Select { name } => {
-                run::gateway_select(name.as_deref(), &cli.gateway)?;
+            GatewayCommands::Select { name, list } => {
+                run::gateway_select(name.as_deref(), list, &cli.gateway, &tls).await?;
             }
             GatewayCommands::Info { name } => {
                 let name = name
                     .or_else(|| resolve_gateway_name(&cli.gateway))
                     .unwrap_or_else(|| "openshell".to_string());
-                run::gateway_admin_info(&name)?;
+                run::gateway_admin_info(&name, &tls).await?;
             }
         },
 
@@ -1931,7 +2041,7 @@ async fn main() -> Result<()> {
         Some(Commands::Status) => {
             if let Ok(ctx) = resolve_gateway(&cli.gateway, &cli.gateway_endpoint) {
                 let mut tls = tls.with_gateway_name(&ctx.name);
-                apply_edge_auth(&mut tls, &ctx.name);
+                run::apply_edge_auth(&mut tls, &ctx.name);
                 run::gateway_status(&ctx.name, &ctx.endpoint, &tls).await?;
             } else {
                 println!("{}", "Gateway Status".cyan().bold());
@@ -2030,7 +2140,7 @@ async fn main() -> Result<()> {
                 let spec = openshell_core::forward::ForwardSpec::parse(&port)?;
                 let ctx = resolve_gateway(&cli.gateway, &cli.gateway_endpoint)?;
                 let mut tls = tls.with_gateway_name(&ctx.name);
-                apply_edge_auth(&mut tls, &ctx.name);
+                run::apply_edge_auth(&mut tls, &ctx.name);
                 let name = resolve_sandbox_name(name, &ctx.name)?;
                 run::sandbox_forward(&ctx.endpoint, &name, &spec, background, &tls).await?;
                 if background {
@@ -2058,7 +2168,7 @@ async fn main() -> Result<()> {
         }) => {
             let ctx = resolve_gateway(&cli.gateway, &cli.gateway_endpoint)?;
             let mut tls = tls.with_gateway_name(&ctx.name);
-            apply_edge_auth(&mut tls, &ctx.name);
+            run::apply_edge_auth(&mut tls, &ctx.name);
             let name = resolve_sandbox_name(name, &ctx.name)?;
             run::sandbox_logs(
                 &ctx.endpoint,
@@ -2103,7 +2213,7 @@ async fn main() -> Result<()> {
         }) => {
             let ctx = resolve_gateway(&cli.gateway, &cli.gateway_endpoint)?;
             let mut tls = tls.with_gateway_name(&ctx.name);
-            apply_edge_auth(&mut tls, &ctx.name);
+            run::apply_edge_auth(&mut tls, &ctx.name);
             match policy_cmd {
                 PolicyCommands::Set {
                     name,
@@ -2211,7 +2321,7 @@ async fn main() -> Result<()> {
         }) => {
             let ctx = resolve_gateway(&cli.gateway, &cli.gateway_endpoint)?;
             let mut tls = tls.with_gateway_name(&ctx.name);
-            apply_edge_auth(&mut tls, &ctx.name);
+            run::apply_edge_auth(&mut tls, &ctx.name);
 
             match settings_cmd {
                 SettingsCommands::Get { name, global, json } => {
@@ -2265,7 +2375,7 @@ async fn main() -> Result<()> {
         }) => {
             let ctx = resolve_gateway(&cli.gateway, &cli.gateway_endpoint)?;
             let mut tls = tls.with_gateway_name(&ctx.name);
-            apply_edge_auth(&mut tls, &ctx.name);
+            run::apply_edge_auth(&mut tls, &ctx.name);
             match draft_cmd {
                 DraftCommands::Get { name, status } => {
                     let name = resolve_sandbox_name(name, &ctx.name)?;
@@ -2318,7 +2428,7 @@ async fn main() -> Result<()> {
             let ctx = resolve_gateway(&cli.gateway, &cli.gateway_endpoint)?;
             let endpoint = &ctx.endpoint;
             let mut tls = tls.with_gateway_name(&ctx.name);
-            apply_edge_auth(&mut tls, &ctx.name);
+            run::apply_edge_auth(&mut tls, &ctx.name);
             match command {
                 InferenceCommands::Set {
                     provider,
@@ -2443,7 +2553,7 @@ async fn main() -> Result<()> {
                             }
                             let endpoint = &ctx.endpoint;
                             let mut tls = tls.with_gateway_name(&ctx.name);
-                            apply_edge_auth(&mut tls, &ctx.name);
+                            run::apply_edge_auth(&mut tls, &ctx.name);
                             // The user already has a configured gateway. Disable
                             // auto-bootstrap in the retry path so we don't
                             // silently replace their selected gateway with a new
@@ -2501,7 +2611,7 @@ async fn main() -> Result<()> {
                 } => {
                     let ctx = resolve_gateway(&cli.gateway, &cli.gateway_endpoint)?;
                     let mut tls = tls.with_gateway_name(&ctx.name);
-                    apply_edge_auth(&mut tls, &ctx.name);
+                    run::apply_edge_auth(&mut tls, &ctx.name);
                     let sandbox_dest = dest.as_deref();
                     let local = std::path::Path::new(&local_path);
                     if !local.exists() {
@@ -2536,7 +2646,7 @@ async fn main() -> Result<()> {
                 } => {
                     let ctx = resolve_gateway(&cli.gateway, &cli.gateway_endpoint)?;
                     let mut tls = tls.with_gateway_name(&ctx.name);
-                    apply_edge_auth(&mut tls, &ctx.name);
+                    run::apply_edge_auth(&mut tls, &ctx.name);
                     let local_dest = std::path::Path::new(dest.as_deref().unwrap_or("."));
                     eprintln!(
                         "Downloading sandbox:{} -> {}",
@@ -2551,7 +2661,7 @@ async fn main() -> Result<()> {
                     let ctx = resolve_gateway(&cli.gateway, &cli.gateway_endpoint)?;
                     let endpoint = &ctx.endpoint;
                     let mut tls = tls.with_gateway_name(&ctx.name);
-                    apply_edge_auth(&mut tls, &ctx.name);
+                    run::apply_edge_auth(&mut tls, &ctx.name);
                     match other {
                         SandboxCommands::Create { .. }
                         | SandboxCommands::Upload { .. }
@@ -2631,7 +2741,7 @@ async fn main() -> Result<()> {
             let ctx = resolve_gateway(&cli.gateway, &cli.gateway_endpoint)?;
             let endpoint = &ctx.endpoint;
             let mut tls = tls.with_gateway_name(&ctx.name);
-            apply_edge_auth(&mut tls, &ctx.name);
+            run::apply_edge_auth(&mut tls, &ctx.name);
 
             match command {
                 ProviderCommands::Create {
@@ -2686,7 +2796,7 @@ async fn main() -> Result<()> {
         Some(Commands::Term { theme }) => {
             let ctx = resolve_gateway(&cli.gateway, &cli.gateway_endpoint)?;
             let mut tls = tls.with_gateway_name(&ctx.name);
-            apply_edge_auth(&mut tls, &ctx.name);
+            run::apply_edge_auth(&mut tls, &ctx.name);
             let channel = openshell_cli::tls::build_channel(&ctx.endpoint, &tls).await?;
             openshell_tui::run(channel, &ctx.name, &ctx.endpoint, theme).await?;
         }
@@ -2718,7 +2828,7 @@ async fn main() -> Result<()> {
                         None => tls,
                     };
                     if let Some(ref g) = gateway_name_opt {
-                        apply_edge_auth(&mut effective_tls, g);
+                        run::apply_edge_auth(&mut effective_tls, g);
                     }
                     run::sandbox_ssh_proxy(&gw, &sid, &tok, &effective_tls).await?;
                 }
@@ -2737,7 +2847,7 @@ async fn main() -> Result<()> {
                         meta.gateway_endpoint
                     };
                     let mut tls = tls.with_gateway_name(&g);
-                    apply_edge_auth(&mut tls, &g);
+                    run::apply_edge_auth(&mut tls, &g);
                     run::sandbox_ssh_proxy_by_name(&endpoint, &n, &tls).await?;
                 }
                 // Legacy name mode with --server only (no --gateway-name).
@@ -3308,7 +3418,7 @@ mod tests {
             store_edge_token("edge-gateway", "token-123").unwrap();
 
             let mut tls = TlsOptions::default();
-            apply_edge_auth(&mut tls, "edge-gateway");
+            run::apply_edge_auth(&mut tls, "edge-gateway");
 
             assert_eq!(tls.edge_token.as_deref(), Some("token-123"));
         });

@@ -62,4 +62,5 @@ pub fn http_router(state: Arc<crate::ServerState>) -> Router {
     crate::ssh_tunnel::router(state.clone())
         .merge(crate::ws_tunnel::router(state.clone()))
         .merge(crate::auth::router(state))
+        .merge(health_router())
 }

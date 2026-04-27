@@ -1199,9 +1199,17 @@ fn check_kvm_access() -> Result<(), VmError> {
     use std::fs::OpenOptions;
     match OpenOptions::new().read(true).open("/dev/kvm") {
         Ok(_) => Ok(()),
-        Err(e) => Err(VmError::KvmAccess {
-            reason: e.to_string(),
-        }),
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::NotFound || e.kind() == std::io::ErrorKind::PermissionDenied {
+                Err(VmError::KvmAccess {
+                    reason: openshell_core::kvm::diagnose_missing_kvm(),
+                })
+            } else {
+                Err(VmError::KvmAccess {
+                    reason: format!("failed to access /dev/kvm: {e}"),
+                })
+            }
+        }
     }
 }
 

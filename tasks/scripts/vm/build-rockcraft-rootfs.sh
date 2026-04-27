@@ -36,6 +36,11 @@ if ! command -v zstd >/dev/null 2>&1; then
     exit 1
 fi
 
+if ! command -v fakeroot >/dev/null 2>&1; then
+    echo "ERROR: fakeroot not installed. Install with: sudo apt install fakeroot"
+    exit 1
+fi
+
 # Clean up any previous rock build artifacts
 rm -f openshell-vm-rootfs_*.rock
 
@@ -55,6 +60,12 @@ trap restore_rockcraft EXIT
 
 cp rockcraft-vm-rootfs.yaml rockcraft.yaml
 
+if [[ -n "${1:-}" ]]; then
+  if [[ "$1" == "clean" ]]; then
+      echo "Cleaning build environment..."
+      rockcraft clean
+  fi
+fi
 # Build the rock
 rockcraft pack
 
@@ -86,13 +97,7 @@ mkdir -p "${TARGET_DIR}"
 # Create the final tarball directly from the extracted rootfs directory.
 # We use fakeroot so that the resulting tarball stores files as root:root (UID 0),
 # which is what the VM guest kernel expects when it mounts the virtio-fs.
-if command -v fakeroot >/dev/null 2>&1; then
-    fakeroot tar -C "${BUNDLE_DIR}/rootfs" -cf - . | zstd -f -19 -T0 -o "${ROOTFS_TARBALL}"
-else
-    echo "WARNING: fakeroot not installed. Files in rootfs will be owned by your user id instead of root."
-    echo "         To fix this, install fakeroot: sudo apt install fakeroot"
-    exit 1
-fi
+fakeroot tar -C "${BUNDLE_DIR}/rootfs" -cf - . | zstd -f -19 -T0 -o "${ROOTFS_TARBALL}"
 
 echo "==> Cleaning up..."
 rm -rf "${BUNDLE_DIR}"

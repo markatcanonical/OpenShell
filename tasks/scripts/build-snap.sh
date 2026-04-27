@@ -13,10 +13,11 @@ if [ ! -f snap/local-images/openshell-core.rock ]; then
 fi
 
 echo "==> Building Snap package..."
-rm -f openshell_*_*.snap
-# If arguments are passed (like --build-for), forward them to snapcraft
-if [ $# -eq 0 ]; then
-    snapcraft pack
-else
-    snapcraft pack "$@"
+if [[ -n "${1:-}" ]]; then
+  if [[ "$1" == "clean" ]]; then
+      echo "Cleaning build environment..."
+      snapcraft clean
+  fi
 fi
+rm -f openshell_*_*.snap
+snapcraft pack

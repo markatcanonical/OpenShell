@@ -31,6 +31,7 @@ parts:
       - libssl3t64
       - libz3-4
       - ca-certificates
+      - busybox-static
     rust-features: []
     rust-path: 
       - "crates/openshell-server"
@@ -41,7 +42,14 @@ parts:
     override-pull: |
       craftctl default
       # Set version to git describe or short commit hash
-      craftctl set version=$(git describe --tags --abbrev=10 || git rev-parse --short HEAD)
+      craftctl set version=$(git branch --show-current | tr '/' '-')-g$(git rev-parse --short HEAD)
+
+    override-build: |
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/bin
+      for cmd in sh cp sleep nsenter; do
+        ln -s busybox $CRAFT_PART_INSTALL/bin/$cmd
+      done
 
 
   migrations:

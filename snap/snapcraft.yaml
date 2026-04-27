@@ -17,7 +17,7 @@ source-code: https://github.com/NVIDIA/OpenShell
 website: https://github.com/NVIDIA/OpenShell
 donation: https://nvidia.com/
 
-grade: stable
+adopt-info: workspace
 confinement: strict
 
 apps:
@@ -25,13 +25,13 @@ apps:
     command: bin/openshell
     environment:
       KUBECONFIG: $SNAP_REAL_HOME/.kube/config
-      OPENSHELL_GATEWAY_ENDPOINT: unix://$SNAP_COMMON/run/gateway.sock
     plugs:
       - network
       - network-bind
       - kube-config
       - home
-  server:
+    completer: etc/bash_completion.d/snap.openshell
+  gateway:
     command: bin/openshell-server-wrapper
     daemon: simple
     environment:
@@ -41,14 +41,6 @@ apps:
       - network-bind
       - kube-config
       - kvm
-  cluster:
-    command: bin/openshell cluster
-    environment:
-      KUBECONFIG: $SNAP_REAL_HOME/.kube/config
-    plugs:
-      - network
-      - network-bind
-      - kube-config
 
 plugs:
   kube-config:
@@ -56,11 +48,10 @@ plugs:
     read:
       - $HOME/.kube/config
 
-hooks:
-  configure:
-    plugs:
-      - network
-      - network-bind
+layout:
+  /etc/containers:
+    bind: $SNAP/etc/containers
+
 
 parts:
   workspace:
@@ -76,12 +67,53 @@ parts:
       - clang
       - libclang-dev
       - libz3-dev
+      - git
     stage-packages:
       - libz3-4
       - skopeo
       - openssh-client
+      - curl
     rust-features: []
     rust-path: ["crates/openshell-cli", "crates/openshell-server", "crates/openshell-driver-vm"]
+    override-pull: |
+      # Pull the source using snapcraft.
+      craftctl default
+
+      # Set defaults.
+      grade=devel
+      full_tag="$(git describe --tags --abbrev=0 2>/dev/null)" || true
+      hash="$(git rev-parse --short HEAD 2>/dev/null)"
+
+      # Remove leading 'v' from tag for the version string.
+      tag="${full_tag#v}"
+
+      # Check for tagged version.
+      if [ -n "$full_tag" ]; then
+        count="$(git rev-list "$full_tag".. --count 2>/dev/null)"
+        if [ "$count" -eq 0 ]; then
+          version="$tag"
+          grade=stable
+        else
+          version="$tag+git$count.$hash"
+        fi
+      else
+        count="$(git rev-list HEAD --count 2>/dev/null)"
+        version="0+git$count.$hash"
+      fi
+
+      # Relay back to snapcraft.
+      craftctl set grade="$grade"
+      craftctl set version="$version"
+    override-build: |
+      craftctl default
+
+      mkdir -p ${CRAFT_PART_INSTALL}/etc/bash_completion.d/
+      ${CRAFT_PART_INSTALL}/bin/openshell completions bash > ${CRAFT_PART_INSTALL}/etc/bash_completion.d/snap.openshell
+
+      # Provide an empty registries.conf to avoid skopeo permission denied errors in strict confinement
+      mkdir -p ${CRAFT_PART_INSTALL}/etc/containers
+      touch ${CRAFT_PART_INSTALL}/etc/containers/registries.conf
+
 
   vm-runtime:
     plugin: nil
