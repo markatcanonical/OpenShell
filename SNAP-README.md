@@ -62,7 +62,7 @@ configuration in `/etc/kubernetes/admin.conf` and a Docker registry running on
 localhost:5000.  If you want, test it out:
 
 ```
-sudo snap install kubectl --classic
+sudo snap install kubectl --classic --channel=1.35
 sudo kubectl get nodes --kubeconfig=/etc/kubernetes/admin.conf
 ```
 
