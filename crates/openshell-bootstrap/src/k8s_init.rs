@@ -136,6 +136,7 @@ pub async fn init_external_cluster(
 
                 let u = effective_username.unwrap();
                 let mut login_cmd = std::process::Command::new("skopeo");
+                login_cmd.env("CONTAINERS_REGISTRIES_CONF", "/dev/null");
                 login_cmd
                     .arg("login")
                     .arg("--authfile")
@@ -158,13 +159,21 @@ pub async fn init_external_cluster(
                     use std::io::Write;
                     stdin.write_all(token.as_bytes()).into_diagnostic()?;
                 }
+                
+                let mut stderr_output = String::new();
+                if let Some(mut stderr) = child.stderr.take() {
+                    use std::io::Read;
+                    let _ = stderr.read_to_string(&mut stderr_output);
+                }
+                
                 let status = child
                     .wait()
                     .into_diagnostic()
                     .context("Failed to wait on skopeo login")?;
                 if !status.success() {
                     return Err(miette::miette!(
-                        "Failed to authenticate with registry using skopeo login"
+                        "Failed to authenticate with registry using skopeo login. Error:\n{}",
+                        stderr_output.trim()
                     ));
                 }
                 (authfile, Some(tmp_dir))
@@ -179,6 +188,7 @@ pub async fn init_external_cluster(
             let target_image = format!("{}/openshell-core:local", target_registry);
             
             let mut cmd = std::process::Command::new("skopeo");
+            cmd.env("CONTAINERS_REGISTRIES_CONF", "/dev/null");
             cmd.arg("--insecure-policy")
                 .arg("copy")
                 .arg("--dest-tls-verify=false");
@@ -187,26 +197,35 @@ pub async fn init_external_cluster(
                 cmd.arg("--authfile").arg(authfile_path.as_os_str());
             }
 
-            let status = cmd
+            let output = cmd
                 .arg(format!("--tmpdir={}", snap_user_data))
                 .arg(format!("oci-archive:{}", core_rock))
                 .arg(format!("docker://{}", target_image))
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::piped())
-                .status();
+                .output();
 
-            match status {
-                Ok(s) if s.success() => {
+            match output {
+                Ok(out) if out.status.success() => {
                     tracing::info!("Successfully pushed unified openshell-core to local registry.");
                     push_success = true;
                 }
-                _ => {}
+                Ok(out) => {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    tracing::warn!("Failed to push openshell-core image. Skopeo output:\n{}", stderr.trim());
+                }
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        tracing::warn!("'skopeo' command not found. Please install skopeo to push images.");
+                    } else {
+                        tracing::warn!("Failed to execute skopeo: {}", e);
+                    }
+                }
             }
         } else {
             let target_gateway = format!("{}/openshell-gateway:dev", target_registry);
             let target_supervisor = format!("{}/openshell-supervisor:dev", target_registry);
 
             let mut cmd1 = std::process::Command::new("skopeo");
+            cmd1.env("CONTAINERS_REGISTRIES_CONF", "/dev/null");
             cmd1.arg("--insecure-policy")
                 .arg("copy")
                 .arg("--dest-tls-verify=false");
@@ -215,15 +234,14 @@ pub async fn init_external_cluster(
                 cmd1.arg("--authfile").arg(authfile_path.as_os_str());
             }
 
-            let s1 = cmd1
+            let o1 = cmd1
                 .arg(format!("--tmpdir={}", snap_user_data))
                 .arg(format!("oci-archive:{}", gateway_tar))
                 .arg(format!("docker://{}", target_gateway))
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::piped())
-                .status();
+                .output();
 
             let mut cmd2 = std::process::Command::new("skopeo");
+            cmd2.env("CONTAINERS_REGISTRIES_CONF", "/dev/null");
             cmd2.arg("--insecure-policy")
                 .arg("copy")
                 .arg("--dest-tls-verify=false");
@@ -232,18 +250,40 @@ pub async fn init_external_cluster(
                 cmd2.arg("--authfile").arg(authfile_path.as_os_str());
             }
 
-            let s2 = cmd2
+            let o2 = cmd2
                 .arg(format!("--tmpdir={}", snap_user_data))
                 .arg(format!("oci-archive:{}", supervisor_tar))
                 .arg(format!("docker://{}", target_supervisor))
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::piped())
-                .status();
+                .output();
 
-            if let (Ok(s1_status), Ok(s2_status)) = (s1, s2) {
-                if s1_status.success() && s2_status.success() {
-                    tracing::info!("Successfully pushed gateway and supervisor to local registry.");
+            match (o1, o2) {
+                (Ok(out1), Ok(out2)) if out1.status.success() && out2.status.success() => {
+                    tracing::info!("Successfully pushed gateway and supervisor to registry.");
                     push_success = true;
+                }
+                (r1, r2) => {
+                    if let Ok(out1) = &r1 {
+                        if !out1.status.success() {
+                            tracing::warn!("Failed to push gateway image. Skopeo output:\n{}", String::from_utf8_lossy(&out1.stderr).trim());
+                        }
+                    } else if let Err(e) = &r1 {
+                        if e.kind() == std::io::ErrorKind::NotFound {
+                            tracing::warn!("'skopeo' command not found. Please install skopeo to push images.");
+                        } else {
+                            tracing::warn!("Failed to execute skopeo (gateway): {}", e);
+                        }
+                    }
+                    if let Ok(out2) = &r2 {
+                        if !out2.status.success() {
+                            tracing::warn!("Failed to push supervisor image. Skopeo output:\n{}", String::from_utf8_lossy(&out2.stderr).trim());
+                        }
+                    } else if let Err(e) = &r2 {
+                        if e.kind() == std::io::ErrorKind::NotFound {
+                            tracing::warn!("'skopeo' command not found. Please install skopeo to push images.");
+                        } else {
+                            tracing::warn!("Failed to execute skopeo (supervisor): {}", e);
+                        }
+                    }
                 }
             }
         }
@@ -251,9 +291,9 @@ pub async fn init_external_cluster(
         if push_success {
             images_loaded = true;
         } else {
-            tracing::warn!("Failed to push bundled images to the local registry.");
+            tracing::warn!("Failed to push bundled images to the registry.");
             tracing::warn!(
-                "For local development, please run \"sudo k8s enable registry\" (or equivalent) or point openshell to your preferred registry using the OPENSHELL_REGISTRY environment variable."
+                "For local development, please run \"sudo snap install registry\" and use \"localhost:5000\", or point to your preferred registry with $OPENSHELL_REGISTRY or --registry."
             );
 
             // We exit early because without the local images available in the registry,
