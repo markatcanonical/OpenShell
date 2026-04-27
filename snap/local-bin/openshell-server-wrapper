@@ -42,4 +42,11 @@ if [ -n "$PODMAN_SOCKET" ]; then
 	export OPENSHELL_PODMAN_SOCKET="$PODMAN_SOCKET"
 fi
 
-exec "$SNAP/bin/openshell-gateway" --db-url "sqlite:$SNAP_DATA/openshell.db" --drivers "${DRIVER:-vm}" "${UDS_ARGS[@]}" "${TLS_ARGS[@]}" "${SSH_SECRET_ARGS[@]}" "${GRPC_ARGS[@]}" "$@"
+exec "$SNAP/bin/openshell-gateway" \
+	--db-url "sqlite:$SNAP_DATA/openshell.db" \
+	--drivers "${DRIVER:-vm}" \
+	"${UDS_ARGS[@]}" \
+	"${TLS_ARGS[@]}" \
+	"${SSH_SECRET_ARGS[@]}" \
+	"${GRPC_ARGS[@]}" \
+	"$@"
