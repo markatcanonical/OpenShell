@@ -53,7 +53,16 @@ Here is the simplest way to setup K8s on Ubuntu:
 sudo snap install k8s --classic --channel=1.35-classic            # The tested version is 1.35
 sudo snap install registry
 
-sudo k8s bootstrap
+cat <<EOF | sudo k8s bootstrap --file -
+containerd-base-dir: /run/canonical-containerd/
+cluster-config:
+  network:
+    enabled: true
+  dns:
+    enabled: true
+  local-storage:
+    enabled: true
+EOF
 sudo k8s status --wait-ready
 ```
 
