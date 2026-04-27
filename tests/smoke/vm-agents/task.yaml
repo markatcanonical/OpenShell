@@ -6,8 +6,16 @@ details: |
     Checks that the claude and copilot binaries are installed at the expected
     paths inside the VM rootfs and have executable permissions.
 
+prepare: |
+    # Poke the API in case there's another race when it starts up?
+    snap run openshell sandbox list
+
 execute: |
     snap run openshell sandbox create -- sh -c 'test -x "$(which claude)"'
+
+    # Creating a few sandboxes rapidly may sometimes fail on sqlite lock.
+    sleep 3
+
     snap run openshell sandbox create -- sh -c 'test -x "$(which copilot)"'
 
 restore: |
