@@ -39,7 +39,7 @@ and a kubeconfig file. The command to deploy is:
 For example, this command will deploy to a local K8s cluster on Ubuntu:
 
 ```
-sudo cat /etc/kubernetes/admin.conf | openshell cluster init --gateway localk8s --registry localhost:5000 --kubeconfig -
+sudo cat /etc/kubernetes/admin.conf | openshell cluster init --gateway local-k8s --registry localhost:5000 --kubeconfig -
 ```
 
 This will verify both the registy and the Kubernetes credential, push images to
@@ -47,11 +47,11 @@ the registry, deploy a daemonset that provides a custom AppArmor profile for
 the supervisor, and run the gateway service. It will then register this client
 so that it can create sandboxes on that Kubernetes.
 
-Here is the simplest K8s setup available on Ubuntu:
+Here is the simplest way to setup K8s on Ubuntu:
 
 ```
 sudo snap install k8s --classic --channel=1.35-classic            # The tested version is 1.35
-sudo snap install registry kubectl
+sudo snap install registry
 
 sudo k8s bootstrap
 sudo k8s status --wait-ready
@@ -62,13 +62,15 @@ configuration in `/etc/kubernetes/admin.conf` and a Docker registry running on
 localhost:5000.  If you want, test it out:
 
 ```
-kubectl get nodes
+sudo snap install kubectl --classic
+sudo kubectl get nodes --kubeconfig=/etc/kubernetes/admin.conf
 ```
 
 We can deploy the OpenShell gateway on that cluster:
 
 ```
-sudo cat /etc/kubernetes/admin.conf | openshell cluster init --gateway localk8s --registry localhost:5000 --kubeconfig -
+sudo cat /etc/kubernetes/admin.conf | openshell cluster init --gateway local-k8s --registry localhost:5000 --kubeconfig -
+openshell gateway select --list
 openshell sandbox create
 ```
 
@@ -104,44 +106,10 @@ sudo snap install ./openshell_<v>_<arch>.snap --dangerous
 ```
 
 
-You need a Docker image registry:
-
-```
-sudo snap install registry
-```
-
-The registry should now be running on localhost:5000, feel free to test it with
-your fave OCI tools.
-
-Now you need to initialize the cluster. This puts a daemonset on the k8s which
-installs a custom-written AppArmor profile for the supervisor container. That
-gives the supervisor (and only the supervisor) the permissions it needs to
-setup the sandboxes.
-
-```
-openshell cluster init --registry=localhost:5000
-```
-
-You should see a successful initialization. In theory this would work against a
-different registry, but you would also need to configure your K8s to trust that
-registry. We're using a localhost K8s and a localhost registry in this
-walkthrough so it should Just Work.
-
-Now you can make a sandbox:
-
-```
-openshell sandbox create
-```
-
-... should drop you into a sandbox running on k8s.
-
-
-
 # TODO
 
  - tests
- - figure out how best to provide certificates
- - slim down rootfs - chiselled rock?
+ - slim down VM rootfs - chiselled rock?
  - figure out if we still need kube-config
  - properly remove K3s from image-building tangle
  - merge `openshell cluster init` and `openshell podman init` into `openshell gateway start` that takes all the right flavour-specific parameters
