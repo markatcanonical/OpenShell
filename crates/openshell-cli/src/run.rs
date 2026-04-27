@@ -5948,21 +5948,25 @@ mod tests {
     fn gateway_select_uses_explicit_name_without_prompting() {
         let tmpdir = tempfile::tempdir().expect("create tmpdir");
         with_tmp_xdg(tmpdir.path(), || {
-            store_gateway_metadata(
-                "alpha",
-                &edge_registration("alpha", "https://alpha.example.com"),
-            )
-            .expect("store gateway");
+            let runtime = tokio::runtime::Runtime::new().expect("create runtime");
+            runtime.block_on(async {
+                store_gateway_metadata(
+                    "alpha",
+                    &edge_registration("alpha", "https://alpha.example.com"),
+                )
+                .expect("store gateway");
 
-            let mut prompted = false;
-            gateway_select_with(Some("alpha"), &None, true, |_, _| {
-                prompted = true;
-                Ok(None)
-            })
-            .expect("select explicit gateway");
+                let mut prompted = false;
+                gateway_select_with(Some("alpha"), &None, &TlsOptions::default(), true, |_, _, _| {
+                    prompted = true;
+                    Ok(None)
+                })
+                .await
+                .expect("select explicit gateway");
 
-            assert_eq!(load_active_gateway().as_deref(), Some("alpha"));
-            assert!(!prompted, "explicit gateway should skip prompting");
+                assert_eq!(load_active_gateway().as_deref(), Some("alpha"));
+                assert!(!prompted, "explicit gateway should skip prompting");
+            });
         });
     }
 
@@ -5982,15 +5986,19 @@ mod tests {
             .expect("store beta");
             super::save_active_gateway("beta").expect("save active gateway");
 
-            let mut seen_default = None;
-            gateway_select_with(None, &None, true, |gateways, default| {
-                seen_default = Some(default);
-                Ok(Some(gateways[default].name.clone()))
-            })
-            .expect("interactive selection");
+            let runtime = tokio::runtime::Runtime::new().expect("create runtime");
+            runtime.block_on(async {
+                let mut seen_default = None;
+                gateway_select_with(None, &None, &TlsOptions::default(), true, |gateways, statuses, default| {
+                    seen_default = Some(default);
+                    Ok(Some(gateways[default].name.clone()))
+                })
+                .await
+                .expect("interactive selection");
 
-            assert_eq!(seen_default, Some(1));
-            assert_eq!(load_active_gateway().as_deref(), Some("beta"));
+                assert_eq!(seen_default, Some(1));
+                assert_eq!(load_active_gateway().as_deref(), Some("beta"));
+            });
         });
     }
 
@@ -6005,14 +6013,18 @@ mod tests {
             .expect("store gateway");
 
             let mut prompted = false;
-            gateway_select_with(None, &None, false, |_, _| {
-                prompted = true;
-                Ok(None)
-            })
-            .expect("non-interactive selection");
+            let runtime = tokio::runtime::Runtime::new().expect("create runtime");
+            runtime.block_on(async {
+                gateway_select_with(None, &None, &TlsOptions::default(), false, |_, _, _| {
+                    prompted = true;
+                    Ok(None)
+                })
+                .await
+                .expect("non-interactive selection");
 
-            assert!(!prompted, "non-interactive mode should not prompt");
-            assert_eq!(load_active_gateway(), None);
+                assert!(!prompted, "non-interactive mode should not prompt");
+                assert_eq!(load_active_gateway(), None);
+            });
         });
     }
 
@@ -6033,7 +6045,7 @@ mod tests {
             },
         ];
 
-        let items = format_gateway_select_items(&gateways);
+        let items = format_gateway_select_items(&gateways, &["OK".to_string(), "OK".to_string()]);
         let header = format_gateway_select_header(&gateways);
 
         assert_eq!(gateway_type_label(&gateways[0]), "cloud");

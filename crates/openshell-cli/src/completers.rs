@@ -153,11 +153,12 @@ mod tests {
     }
 
     #[test]
-    fn gateway_completer_returns_empty_when_no_config() {
+    fn gateway_completer_returns_local_vm_when_no_config() {
         let temp = tempfile::tempdir().unwrap();
         with_isolated_cli_env(temp.path(), || {
             let result = complete_gateway_names(OsStr::new(""));
-            assert!(result.is_empty());
+            assert!(result.len() == 1);
+            assert!(result[0].get_value() == "local-vm");
         });
     }
 
