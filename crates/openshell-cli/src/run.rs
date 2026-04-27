@@ -779,8 +779,13 @@ pub fn apply_edge_auth(tls: &mut TlsOptions, gateway_name: &str) {
     }
 }
 
-pub async fn gateway_select(name: Option<&str>, gateway_flag: &Option<String>, tls: &TlsOptions) -> Result<()> {
-    let interactive = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+pub async fn gateway_select(
+    name: Option<&str>,
+    list: bool,
+    gateway_flag: &Option<String>,
+    tls: &TlsOptions,
+) -> Result<()> {
+    let interactive = !list && std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
     gateway_select_with(name, gateway_flag, tls, interactive, |gateways, statuses, default| {
         let prompt = format!(
             "Select a gateway\n{}",

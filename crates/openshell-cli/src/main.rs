@@ -983,6 +983,10 @@ enum GatewayCommands {
         /// Gateway name (omit to choose interactively or list in non-interactive mode).
         #[arg(add = ArgValueCompleter::new(completers::complete_gateway_names))]
         name: Option<String>,
+
+        /// Print the list of available gateways and exit.
+        #[arg(long)]
+        list: bool,
     },
 
     /// Show gateway deployment details.
@@ -1979,8 +1983,8 @@ async fn main() -> Result<()> {
                     })?;
                 run::gateway_login(&name).await?;
             }
-            GatewayCommands::Select { name } => {
-                run::gateway_select(name.as_deref(), &cli.gateway, &tls).await?;
+            GatewayCommands::Select { name, list } => {
+                run::gateway_select(name.as_deref(), list, &cli.gateway, &tls).await?;
             }
             GatewayCommands::Info { name } => {
                 let name = name
