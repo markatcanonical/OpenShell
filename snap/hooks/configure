@@ -31,12 +31,12 @@ fi
 
 # Write environment file for the daemon wrapper
 mkdir -p "$SNAP_DATA"
-cat <<EOF >"$SNAP_DATA/config.env"
-DRIVER="${DRIVER}"
-REGISTRY="${REGISTRY}"
-SOCKET_GROUP="${SOCKET_GROUP}"
-SOCKET_MODE="${SOCKET_MODE}"
-EOF
+{
+	printf 'DRIVER=%q\n' "$DRIVER"
+	printf 'REGISTRY=%q\n' "$REGISTRY"
+	printf 'SOCKET_GROUP=%q\n' "$SOCKET_GROUP"
+	printf 'SOCKET_MODE=%q\n' "$SOCKET_MODE"
+} >"$SNAP_DATA/config.env"
 
 # Apply mode immediately to the current socket if it exists.
 SOCKET_PATH="$SNAP_COMMON/run/gateway.sock"
