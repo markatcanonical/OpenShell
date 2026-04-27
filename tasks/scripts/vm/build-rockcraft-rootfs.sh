@@ -60,6 +60,12 @@ trap restore_rockcraft EXIT
 
 cp rockcraft-vm-rootfs.yaml rockcraft.yaml
 
+if [[ -n "${1:-}" ]]; then
+  if [[ "$1" == "clean" ]]; then
+      echo "Cleaning build environment..."
+      rockcraft clean
+  fi
+fi
 # Build the rock
 rockcraft pack
 

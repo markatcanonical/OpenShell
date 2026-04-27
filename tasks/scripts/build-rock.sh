@@ -20,6 +20,12 @@ cp rockcraft-openshell-core.yaml rockcraft.yaml
 
 echo "==> Building OpenShell Core ROCK (Gateway + Supervisor)..."
 rm -f openshell-core_*_*.rock
+if [[ -n "${1:-}" ]]; then
+  if [[ "$1" == "clean" ]]; then
+      echo "Cleaning build environment..."
+      rockcraft clean
+  fi
+fi
 rockcraft pack
 rm -f rockcraft.yaml
 trap - EXIT
