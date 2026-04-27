@@ -41,6 +41,7 @@ backends:
 exclude:
     - "*.rock"
     - ".image-garden/*"
+    - "target/*"
 
 path: /root/openshell
 
