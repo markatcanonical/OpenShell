@@ -38,8 +38,11 @@ mkdir -p "$SNAP_DATA"
 	printf 'SOCKET_MODE=%q\n' "$SOCKET_MODE"
 } >"$SNAP_DATA/config.env"
 
-# Apply mode immediately to the current socket if it exists.
+# Apply socket settings immediately to the current socket if it exists.
 SOCKET_PATH="$SNAP_COMMON/run/gateway.sock"
 if [ -S "$SOCKET_PATH" ]; then
 	chmod "$SOCKET_MODE" "$SOCKET_PATH"
+	if [ -n "$SOCKET_GROUP" ]; then
+		chgrp "$SOCKET_GROUP" "$SOCKET_PATH"
+	fi
 fi
