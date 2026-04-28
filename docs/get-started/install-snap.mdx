@@ -60,9 +60,15 @@ sudo cat /etc/kubernetes/admin.conf | openshell cluster init --gateway local-k8s
 
 This verifies the registry and Kubernetes credentials, pushes images to the registry, deploys a daemonset with a custom AppArmor profile, and runs the gateway service.
 
-You can then select the gateway and create sandboxes:
+You can see the new gateway immediately, and it is probably already selected:
+```
+openshell gateway list
+```
+
+If needed you can select the gateway, and create sandboxes:
 
 ```shell
-openshell gateway select --list
+openshell gateway select <gateway-name>
 openshell sandbox create
 ```
+
