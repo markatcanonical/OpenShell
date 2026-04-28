@@ -3165,6 +3165,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "openshell-driver-docker"
+version = "0.0.0"
+dependencies = [
+ "bollard",
+ "bytes",
+ "futures",
+ "openshell-core",
+ "tar",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "openshell-driver-kubernetes"
 version = "0.0.0"
 dependencies = [
@@ -3361,6 +3378,7 @@ dependencies = [
  "metrics-exporter-prometheus",
  "miette",
  "openshell-core",
+ "openshell-driver-docker",
  "openshell-driver-kubernetes",
  "openshell-driver-podman",
  "openshell-ocsf",
@@ -3391,7 +3409,6 @@ dependencies = [
  "tower-http 0.6.8",
  "tracing",
  "tracing-subscriber",
- "url",
  "uuid",
  "wiremock",
 ]

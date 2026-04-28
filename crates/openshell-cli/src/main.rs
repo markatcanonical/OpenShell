@@ -1265,6 +1265,10 @@ enum SandboxCommands {
         #[arg(long, overrides_with = "auto_providers")]
         no_auto_providers: bool,
 
+        /// Attach labels to the sandbox (key=value format, repeatable).
+        #[arg(long = "label")]
+        labels: Vec<String>,
+
         /// Command to run after "--" (defaults to an interactive shell).
         #[arg(last = true, allow_hyphen_values = true)]
         command: Vec<String>,
@@ -1300,6 +1304,10 @@ enum SandboxCommands {
         /// Print only sandbox names (one per line).
         #[arg(long, conflicts_with = "ids")]
         names: bool,
+
+        /// Filter sandboxes by label selector (key1=value1,key2=value2).
+        #[arg(long)]
+        selector: Option<String>,
     },
 
     /// Delete a sandbox by name.
@@ -2496,6 +2504,7 @@ async fn main() -> Result<()> {
                     no_bootstrap,
                     auto_providers,
                     no_auto_providers,
+                    labels,
                     command,
                 } => {
                     // Resolve --tty / --no-tty into an Option<bool> override.
@@ -2525,6 +2534,19 @@ async fn main() -> Result<()> {
                     } else {
                         None // prompt or auto-detect
                     };
+
+                    // Parse --label flags into a HashMap<String, String>.
+                    let mut labels_map = std::collections::HashMap::new();
+                    for label_str in &labels {
+                        let parts: Vec<&str> = label_str.splitn(2, '=').collect();
+                        if parts.len() != 2 {
+                            return Err(miette::miette!(
+                                "invalid label format '{}', expected key=value",
+                                label_str
+                            ));
+                        }
+                        labels_map.insert(parts[0].to_string(), parts[1].to_string());
+                    }
 
                     // Parse --upload spec into (local_path, sandbox_path, git_ignore).
                     let upload_spec = upload.as_deref().map(|s| {
@@ -2576,6 +2598,7 @@ async fn main() -> Result<()> {
                                 tty_override,
                                 Some(false),
                                 auto_providers_override,
+                                &labels_map,
                                 &tls,
                             ))
                             .await?;
@@ -2677,8 +2700,18 @@ async fn main() -> Result<()> {
                             offset,
                             ids,
                             names,
+                            selector,
                         } => {
-                            run::sandbox_list(endpoint, limit, offset, ids, names, &tls).await?;
+                            run::sandbox_list(
+                                endpoint,
+                                limit,
+                                offset,
+                                ids,
+                                names,
+                                selector.as_deref(),
+                                &tls,
+                            )
+                            .await?;
                         }
                         SandboxCommands::Delete { names, all } => {
                             run::sandbox_delete(endpoint, &names, all, &tls, &ctx.name).await?;
