@@ -976,18 +976,17 @@ enum GatewayCommands {
 
     /// Select the active gateway.
     ///
-    /// When called without a name, opens an interactive chooser on a TTY and
-    /// lists available gateways in non-interactive mode.
+    /// When called without a name, opens an interactive chooser on a TTY.
     #[command(help_template = LEAF_HELP_TEMPLATE, next_help_heading = "FLAGS")]
     Select {
-        /// Gateway name (omit to choose interactively or list in non-interactive mode).
+        /// Gateway name (omit to choose interactively).
         #[arg(add = ArgValueCompleter::new(completers::complete_gateway_names))]
         name: Option<String>,
-
-        /// Print the list of available gateways and exit.
-        #[arg(long)]
-        list: bool,
     },
+
+    /// List available gateways.
+    #[command(help_template = LEAF_HELP_TEMPLATE, next_help_heading = "FLAGS")]
+    List,
 
     /// Show gateway deployment details.
     #[command(help_template = LEAF_HELP_TEMPLATE, next_help_heading = "FLAGS")]
@@ -1988,8 +1987,11 @@ async fn main() -> Result<()> {
                     })?;
                 run::gateway_login(&name).await?;
             }
-            GatewayCommands::Select { name, list } => {
-                run::gateway_select(name.as_deref(), list, &cli.gateway, &tls).await?;
+            GatewayCommands::Select { name } => {
+                run::gateway_select(name.as_deref(), &cli.gateway, &tls).await?;
+            }
+            GatewayCommands::List => {
+                run::gateway_list(&cli.gateway, &tls).await?;
             }
             GatewayCommands::Info { name } => {
                 let name = name
