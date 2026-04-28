@@ -780,13 +780,28 @@ pub fn apply_edge_auth(tls: &mut TlsOptions, gateway_name: &str) {
     }
 }
 
-pub async fn gateway_select(
-    name: Option<&str>,
-    list: bool,
+pub async fn gateway_list(
     gateway_flag: &Option<String>,
     tls: &TlsOptions,
 ) -> Result<()> {
-    let interactive = !list && std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+    let gateways = list_gateways()?;
+    print_gateways_table(gateway_flag, tls).await?;
+    if !gateways.is_empty() {
+        eprintln!();
+        eprintln!(
+            "Select a gateway with: {}",
+            "openshell gateway select <name>".dimmed()
+        );
+    }
+    Ok(())
+}
+
+pub async fn gateway_select(
+    name: Option<&str>,
+    gateway_flag: &Option<String>,
+    tls: &TlsOptions,
+) -> Result<()> {
+    let interactive = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
     gateway_select_with(name, gateway_flag, tls, interactive, |gateways, statuses, default| {
         let prompt = format!(
             "Select a gateway\n{}",
@@ -974,16 +989,20 @@ where
     }
 
     let gateways = list_gateways()?;
-    if gateways.is_empty() || !interactive {
-        print_gateways_table(gateway_flag, tls).await?;
-        if !gateways.is_empty() {
-            eprintln!();
-            eprintln!(
-                "Select a gateway with: {}",
-                "openshell gateway select <name>".dimmed()
-            );
-        }
-        return Ok(());
+    if gateways.is_empty() {
+        return Err(miette::miette!(
+            "No gateways found.\n\
+             Deploy a gateway with: openshell gateway start\n\
+             Or add an existing gateway with: openshell gateway add"
+        ));
+    }
+
+    if !interactive {
+        return Err(miette::miette!(
+            "Interactive selection requires a TTY.\n\
+             Use `openshell gateway select <name>` to select explicitly,\n\
+             or `openshell gateway list` to see available gateways."
+        ));
     }
 
     let statuses = fetch_gateway_statuses(&gateways, tls).await;
@@ -6025,7 +6044,7 @@ mod tests {
     }
 
     #[test]
-    fn gateway_select_uses_explicit_name_without_prompting() {
+    fn gateway_select_skips_prompt_when_explicit_gateway_passed() {
         let tmpdir = tempfile::tempdir().expect("create tmpdir");
         with_tmp_xdg(tmpdir.path(), || {
             store_gateway_metadata(
@@ -6035,10 +6054,12 @@ mod tests {
             .expect("store gateway");
 
             let mut prompted = false;
-            gateway_select_with(Some("alpha"), &None, true, |_, _| {
-                prompted = true;
-                Ok(None)
-            })
+            tokio::runtime::Runtime::new().unwrap().block_on(
+                gateway_select_with(Some("alpha"), &None, &TlsOptions::default(), true, |_, _, _| {
+                    prompted = true;
+                    Ok(None)
+                })
+            )
             .expect("select explicit gateway");
 
             assert_eq!(load_active_gateway().as_deref(), Some("alpha"));
@@ -6063,10 +6084,12 @@ mod tests {
             super::save_active_gateway("beta").expect("save active gateway");
 
             let mut seen_default = None;
-            gateway_select_with(None, &None, true, |gateways, default| {
-                seen_default = Some(default);
-                Ok(Some(gateways[default].name.clone()))
-            })
+            tokio::runtime::Runtime::new().unwrap().block_on(
+                gateway_select_with(None, &None, &TlsOptions::default(), true, |gateways, _, default| {
+                    seen_default = Some(default);
+                    Ok(Some(gateways[default].name.clone()))
+                })
+            )
             .expect("interactive selection");
 
             assert_eq!(seen_default, Some(1));
@@ -6075,7 +6098,7 @@ mod tests {
     }
 
     #[test]
-    fn gateway_select_non_interactive_lists_gateways_without_prompting() {
+    fn gateway_select_skips_prompt_when_non_interactive() {
         let tmpdir = tempfile::tempdir().expect("create tmpdir");
         with_tmp_xdg(tmpdir.path(), || {
             store_gateway_metadata(
@@ -6085,12 +6108,15 @@ mod tests {
             .expect("store gateway");
 
             let mut prompted = false;
-            gateway_select_with(None, &None, false, |_, _| {
-                prompted = true;
-                Ok(None)
-            })
-            .expect("non-interactive selection");
+            let err = tokio::runtime::Runtime::new().unwrap().block_on(
+                gateway_select_with(None, &None, &TlsOptions::default(), false, |_gateways, _default, _resolved| {
+                    prompted = true;
+                    Ok(None)
+                })
+            )
+            .unwrap_err();
 
+            assert!(err.to_string().contains("requires a TTY"));
             assert!(!prompted, "non-interactive mode should not prompt");
             assert_eq!(load_active_gateway(), None);
         });
@@ -6113,7 +6139,8 @@ mod tests {
             },
         ];
 
-        let items = format_gateway_select_items(&gateways);
+        let statuses = vec!["OK".to_string(), "Error".to_string()];
+        let items = format_gateway_select_items(&gateways, &statuses);
         let header = format_gateway_select_header(&gateways);
 
         assert_eq!(gateway_type_label(&gateways[0]), "cloud");
