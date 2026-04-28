@@ -123,6 +123,9 @@ Project requirements:
 - Python 3.12+
 - Docker (running)
 - Z3 solver library (for the policy prover crate)
+- `lxd` (for clean containerized builds)
+- `rockcraft` (for OCI and rootfs builds)
+- `snapcraft` (for snap builds)
 
 ### Z3 installation
 
@@ -197,9 +200,18 @@ These are the primary `mise` tasks for day-to-day development:
 | `mise run sandbox` | Create a sandbox on the running cluster                 |
 | `mise run test`    | Default test suite                                      |
 | `mise run e2e`     | Default end-to-end test lane                            |
+| `mise run build:snap`| Build the OpenShell snap and rockcraft dependencies     |
 | `mise run ci`      | Full local CI checks (lint, compile/type checks, tests) |
 | `mise run docs`    | Validate Fern docs locally                              |
 | `mise run clean`   | Clean build artifacts                                   |
+
+### Full System Integration Tests
+
+Full system integration testing is handled by `spread`. This includes spinning up end-to-end VM and snap lifecycle tests. You can run spread tests directly using the `spread.yaml` configuration in the project root:
+
+```bash
+spread
+```
 
 ## Project Structure
 

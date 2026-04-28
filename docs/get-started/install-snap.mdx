@@ -1,0 +1,68 @@
+---
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+title: "Install via Snap"
+sidebar-title: "Install via Snap"
+description: "How to install OpenShell using snap and set up local or Kubernetes sandboxes."
+---
+
+The OpenShell snap provides a simple, secure, and easily managed installation and update experience. This allows you to quickly get OpenShell running locally with MicroVM sandboxes or a Kubernetes cluster.
+
+## Install the Snap
+
+To get started, install the OpenShell snap:
+
+```shell
+sudo snap install openshell
+```
+
+## Local MicroVM Sandboxes
+
+Once installed, you can create VM sandboxes locally without any additional setup, provided your machine supports KVM.
+
+```shell
+openshell sandbox create
+```
+
+## Kubernetes Sandboxes
+
+You might want to use Kubernetes to host sandboxes, particularly if your machine does not support KVM (for example, a cloud VM without nested virtualization).
+
+The `openshell` CLI can deploy its gateway to Kubernetes directly, given a registry and a kubeconfig file.
+
+### Set up Local Kubernetes
+
+The simplest way to set up Kubernetes on Ubuntu is to use the `k8s` snap:
+
+```shell
+sudo snap install k8s --classic --channel=1.35-classic
+sudo snap install registry
+sudo k8s bootstrap
+sudo k8s status --wait-ready
+```
+
+At this stage, you will have a local Kubernetes cluster running with the admin configuration in `/etc/kubernetes/admin.conf` and a Docker registry running on `localhost:5000`.
+
+To interact with your cluster, you can install the `kubectl` snap:
+
+```shell
+sudo snap install kubectl --classic
+sudo kubectl get nodes --kubeconfig=/etc/kubernetes/admin.conf
+```
+
+### Deploy the Gateway
+
+Deploy the OpenShell gateway on that cluster:
+
+```shell
+sudo cat /etc/kubernetes/admin.conf | openshell cluster init --gateway local-k8s --registry localhost:5000 --kubeconfig -
+```
+
+This verifies the registry and Kubernetes credentials, pushes images to the registry, deploys a daemonset with a custom AppArmor profile, and runs the gateway service.
+
+You can then select the gateway and create sandboxes:
+
+```shell
+openshell gateway select --list
+openshell sandbox create
+```

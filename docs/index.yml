@@ -13,6 +13,8 @@ navigation:
   contents:
   - page: "Quickstart"
     path: get-started/quickstart.mdx
+  - page: "Install via Snap"
+    path: get-started/install-snap.mdx
   - folder: get-started/tutorials
     skip-slug: true
 - folder: sandboxes

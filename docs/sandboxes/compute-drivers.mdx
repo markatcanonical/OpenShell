@@ -1,0 +1,26 @@
+---
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+title: "Compute Drivers"
+description: "Overview of the available compute drivers for OpenShell sandboxes."
+---
+
+OpenShell supports multiple compute drivers for running sandboxes, allowing you to choose the execution environment that best fits your infrastructure and security requirements.
+
+## MicroVM (KVM)
+
+The MicroVM driver is the default experience for local sandboxes. It uses `libkrun` and KVM to provide strong, hardware-enforced isolation for each sandbox. 
+
+This driver requires a host machine with nested virtualization (KVM) support. When using the OpenShell snap, the KVM interface must be connected.
+
+## Kubernetes
+
+The Kubernetes driver allows OpenShell to provision sandboxes as pods within a local or remote Kubernetes cluster. This is ideal for cloud environments where nested virtualization is unavailable, or for scaling sandboxes across a distributed cluster.
+
+When a gateway is initialized on Kubernetes via `openshell cluster init`, it automatically configures the cluster to support sandbox execution with appropriate AppArmor profiles.
+
+## Podman
+
+The Podman driver provides a lightweight, local container-based execution environment. It communicates with a local Podman instance over a socket to create and manage sandboxes.
+
+This driver is suitable for local development and testing when MicroVMs are not required or supported.
