@@ -2560,6 +2560,7 @@ pub async fn sandbox_create(
                         &sandbox_name,
                         &base_dir,
                         &files,
+                        local,
                         dest,
                         &effective_tls,
                     )
