@@ -1,24 +1,12 @@
 #!/bin/bash
 set -e
 
-DRIVER=$(snapctl get driver)
-REGISTRY=$(snapctl get registry)
 SOCKET_GROUP=$(snapctl get socket-group)
 SOCKET_MODE=$(snapctl get socket-mode)
 
 # Preserve historical behavior: default to a world-accessible UDS mode unless overridden.
 if [ -z "$SOCKET_MODE" ]; then
 	SOCKET_MODE="0666"
-fi
-
-# Default to vm if driver is not set
-if [ -z "$DRIVER" ]; then
-	DRIVER="vm"
-fi
-
-if [ "$DRIVER" != "vm" ] && [ "$DRIVER" != "k8s" ]; then
-	echo "Error: Invalid driver '$DRIVER'. Allowed values: vm, k8s" >&2
-	exit 1
 fi
 
 # Validate socket mode if set
@@ -32,8 +20,6 @@ fi
 # Write environment file for the daemon wrapper
 mkdir -p "$SNAP_DATA"
 {
-	printf 'DRIVER=%q\n' "$DRIVER"
-	printf 'REGISTRY=%q\n' "$REGISTRY"
 	printf 'SOCKET_GROUP=%q\n' "$SOCKET_GROUP"
 	printf 'SOCKET_MODE=%q\n' "$SOCKET_MODE"
 } >"$SNAP_DATA/config.env"
