@@ -5,10 +5,9 @@ use clap::Parser;
 use miette::{IntoDiagnostic, Result};
 use openshell_core::VERSION;
 use openshell_core::proto::compute::v1::compute_driver_server::ComputeDriverServer;
-use openshell_driver_vm::{
-    VM_RUNTIME_DIR_ENV, VmDriver, VmDriverConfig, VmLaunchConfig, configured_runtime_dir,
-    procguard, run_vm,
-};
+#[cfg(target_os = "macos")]
+use openshell_driver_vm::{VM_RUNTIME_DIR_ENV, configured_runtime_dir};
+use openshell_driver_vm::{VmBackend, VmDriver, VmDriverConfig, VmLaunchConfig, procguard, run_vm};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use tokio::net::UnixListener;
@@ -96,6 +95,39 @@ struct Args {
 
     #[arg(long, env = "OPENSHELL_VM_DRIVER_MEM_MIB", default_value_t = 2048)]
     mem_mib: u32,
+
+    #[arg(long, env = "OPENSHELL_VM_GPU")]
+    gpu: bool,
+
+    #[arg(long, env = "OPENSHELL_VM_GPU_MEM_MIB", default_value_t = 8192)]
+    gpu_mem_mib: u32,
+
+    #[arg(long, env = "OPENSHELL_VM_GPU_VCPUS", default_value_t = 4)]
+    gpu_vcpus: u8,
+
+    #[arg(long, hide = true)]
+    vm_backend: Option<String>,
+
+    #[arg(long, hide = true)]
+    vm_gpu_bdf: Option<String>,
+
+    #[arg(long, hide = true)]
+    vm_tap_device: Option<String>,
+
+    #[arg(long, hide = true)]
+    vm_guest_ip: Option<String>,
+
+    #[arg(long, hide = true)]
+    vm_host_ip: Option<String>,
+
+    #[arg(long, hide = true)]
+    vm_vsock_cid: Option<u32>,
+
+    #[arg(long, hide = true)]
+    vm_guest_mac: Option<String>,
+
+    #[arg(long, hide = true)]
+    vm_gateway_port: Option<u16>,
 }
 
 #[tokio::main]
@@ -149,6 +181,9 @@ async fn main() -> Result<()> {
         guest_tls_ca: args.guest_tls_ca,
         guest_tls_cert: args.guest_tls_cert,
         guest_tls_key: args.guest_tls_key,
+        gpu_enabled: args.gpu,
+        gpu_mem_mib: args.gpu_mem_mib,
+        gpu_vcpus: args.gpu_vcpus,
     })
     .await
     .map_err(|err| miette::miette!("{err}"))?;
@@ -196,6 +231,12 @@ fn build_vm_launch_config(args: &Args) -> std::result::Result<VmLaunchConfig, St
         .clone()
         .ok_or_else(|| "--vm-console-output is required in internal VM mode".to_string())?;
 
+    let backend = match args.vm_backend.as_deref() {
+        Some("qemu") => VmBackend::Qemu,
+        Some("libkrun") | None => VmBackend::Libkrun,
+        Some(other) => return Err(format!("unknown VM backend: {other}")),
+    };
+
     Ok(VmLaunchConfig {
         rootfs,
         vcpus: args.vm_vcpus,
@@ -207,6 +248,14 @@ fn build_vm_launch_config(args: &Args) -> std::result::Result<VmLaunchConfig, St
         log_level: args.vm_krun_log_level,
         console_output,
         run_as_uid: args.vm_run_as_uid,
+        backend,
+        gpu_bdf: args.vm_gpu_bdf.clone(),
+        tap_device: args.vm_tap_device.clone(),
+        guest_ip: args.vm_guest_ip.clone(),
+        host_ip: args.vm_host_ip.clone(),
+        vsock_cid: args.vm_vsock_cid,
+        guest_mac: args.vm_guest_mac.clone(),
+        gateway_port: args.vm_gateway_port,
     })
 }
 
