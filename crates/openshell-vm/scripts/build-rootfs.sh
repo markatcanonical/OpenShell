@@ -104,6 +104,15 @@ chmod +x "${ROOTFS_DIR}/srv/openshell-vm-init.sh"
 cp "${SCRIPT_DIR}/check-vm-capabilities.sh" "${ROOTFS_DIR}/srv/check-vm-capabilities.sh"
 chmod +x "${ROOTFS_DIR}/srv/check-vm-capabilities.sh"
 
+# Inject the openshell-vm exec agent used by `openshell-vm exec`.
+cp "${SCRIPT_DIR}/openshell-vm-exec-agent.py" "${ROOTFS_DIR}/srv/openshell-vm-exec-agent.py"
+chmod +x "${ROOTFS_DIR}/srv/openshell-vm-exec-agent.py"
+
+# ── Build and inject openshell-sandbox supervisor binary ─────────────
+# The supervisor binary runs inside every sandbox pod. It is side-loaded
+# from the node filesystem via a read-only hostPath volume mount at
+# /opt/openshell/bin. Container images consume a prebuilt supervisor
+# binary; here we cross-compile from the host using cargo-zigbuild.
 SUPERVISOR_TARGET="${RUST_TARGET}"
 SUPERVISOR_BIN="${PROJECT_ROOT}/target/${SUPERVISOR_TARGET}/release/openshell-sandbox"
 

@@ -92,7 +92,6 @@ pub(super) async fn handle_create_sandbox(
         request.name.clone()
     };
 
-    use crate::persistence::current_time_ms;
     let now_ms = current_time_ms()
         .map_err(|e| Status::internal(format!("failed to get current time: {e}")))?;
 
@@ -161,8 +160,14 @@ pub(super) async fn handle_list_sandboxes(
     let request = request.into_inner();
     let limit = clamp_limit(request.limit, 100, MAX_PAGE_SIZE);
 
-    // If label selector is provided, validate and use filtered list
-    let records = if !request.label_selector.is_empty() {
+    // If no label selector is provided, use the unfiltered list path
+    let records = if request.label_selector.is_empty() {
+        state
+            .store
+            .list(Sandbox::object_type(), limit, request.offset)
+            .await
+            .map_err(|e| Status::internal(format!("list sandboxes failed: {e}")))?
+    } else {
         crate::grpc::validation::validate_label_selector(&request.label_selector)?;
         state
             .store
@@ -174,12 +179,6 @@ pub(super) async fn handle_list_sandboxes(
             )
             .await
             .map_err(|e| Status::internal(format!("list sandboxes with selector failed: {e}")))?
-    } else {
-        state
-            .store
-            .list(Sandbox::object_type(), limit, request.offset)
-            .await
-            .map_err(|e| Status::internal(format!("list sandboxes failed: {e}")))?
     };
 
     let mut sandboxes = Vec::with_capacity(records.len());
@@ -442,6 +441,8 @@ pub(super) async fn handle_exec_sandbox(
     state: &Arc<ServerState>,
     request: Request<ExecSandboxRequest>,
 ) -> Result<Response<ReceiverStream<Result<ExecSandboxEvent, Status>>>, Status> {
+    use openshell_core::ObjectId;
+
     let req = request.into_inner();
     if req.sandbox_id.is_empty() {
         return Err(Status::invalid_argument("sandbox_id is required"));
@@ -483,7 +484,6 @@ pub(super) async fn handle_exec_sandbox(
     let timeout_seconds = req.timeout_seconds;
     let request_tty = req.tty;
 
-    use openshell_core::ObjectId;
     let sandbox_id = sandbox.object_id().to_string();
 
     let (tx, rx) = mpsc::channel::<Result<ExecSandboxEvent, Status>>(256);
@@ -680,7 +680,7 @@ const MAX_COMMAND_STRING_LEN: usize = 256 * 1024; // 256 KiB
 fn build_remote_exec_command(req: &ExecSandboxRequest) -> Result<String, String> {
     let mut parts = Vec::new();
     let mut env_entries = req.environment.iter().collect::<Vec<_>>();
-    env_entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+    env_entries.sort_by_key(|(a, _)| *a);
     for (key, value) in env_entries {
         parts.push(format!("{key}={}", shell_escape(value)?));
     }
@@ -782,7 +782,7 @@ async fn stream_exec_over_relay(
     Ok(())
 }
 
-/// Create a localhost SSH proxy that bridges to a relay DuplexStream.
+/// Create a localhost SSH proxy that bridges to a relay `DuplexStream`.
 ///
 /// The proxy forwards raw SSH bytes between the `russh` client and the relay.
 /// The supervisor bridges the relay to its Unix-socket SSH daemon; filesystem
@@ -1000,9 +1000,7 @@ mod tests {
                 "-c".to_string(),
                 "print('ok')".to_string(),
             ],
-            environment: [("HOME".to_string(), "/home/user".to_string())]
-                .into_iter()
-                .collect(),
+            environment: std::iter::once(("HOME".to_string(), "/home/user".to_string())).collect(),
             workdir: "/workspace".to_string(),
             ..Default::default()
         };

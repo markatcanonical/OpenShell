@@ -120,7 +120,7 @@ pub struct DeployOptions {
     /// - `[]`          — no GPU passthrough (default)
     /// - `["legacy"]`  — internal non-CDI fallback path (`driver="nvidia"`, `count=-1`)
     /// - `["auto"]`    — resolved at deploy time: CDI if enabled on the daemon, else the non-CDI fallback
-    /// - `[cdi-ids…]`  — CDI DeviceRequest with the given device IDs
+    /// - `[cdi-ids…]`  — CDI `DeviceRequest` with the given device IDs
     pub gpu: Vec<String>,
     /// When true, destroy any existing gateway resources before deploying.
     /// When false, an existing gateway is left as-is and deployment is
@@ -343,8 +343,8 @@ where
     // the image to recreate the container, so the pull must happen.
     let need_image = !resume || !resume_container_exists;
     if need_image {
+        log("[status] Downloading gateway".to_string());
         if remote_opts.is_some() {
-            log("[status] Downloading gateway".to_string());
             let on_log_clone = Arc::clone(&on_log);
             let progress_cb = move |msg: String| {
                 if let Ok(mut f) = on_log_clone.lock() {
@@ -361,7 +361,6 @@ where
             .await?;
         } else {
             // Local deployment: ensure image exists (pull if needed)
-            log("[status] Downloading gateway".to_string());
             ensure_image(
                 &target_docker,
                 &image_ref,
@@ -735,16 +734,16 @@ pub async fn gateway_container_logs<W: std::io::Write>(
     Ok(())
 }
 
-/// Fetch the last `n` lines of container logs for a local gateway as a
-/// `String`.  This is a convenience wrapper for diagnostic call sites (e.g.
-/// failure diagnosis in the CLI) that do not hold a Docker client handle.
+/// Fetch the last `n` lines of container logs for a local gateway as a `String`.
+///
+/// This is a convenience wrapper for diagnostic call sites (e.g. failure
+/// diagnosis in the CLI) that do not hold a Docker client handle.
 ///
 /// Returns an empty string on any Docker/connection error so callers don't
 /// need to worry about error handling.
 pub async fn fetch_gateway_logs(name: &str, n: usize) -> String {
-    let docker = match Docker::connect_with_local_defaults() {
-        Ok(d) => d,
-        Err(_) => return String::new(),
+    let Ok(docker) = Docker::connect_with_local_defaults() else {
+        return String::new();
     };
     let container = container_name(name);
     fetch_recent_logs(&docker, &container, n).await
