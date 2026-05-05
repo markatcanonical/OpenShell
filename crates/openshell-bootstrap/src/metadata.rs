@@ -282,6 +282,10 @@ pub fn load_gateway_metadata(name: &str) -> Result<GatewayMetadata> {
             auth_mode: None,
             edge_team_domain: None,
             edge_auth_url: None,
+            oidc_issuer: None,
+            oidc_client_id: None,
+            oidc_audience: None,
+            oidc_scopes: None,
         });
     }
 
