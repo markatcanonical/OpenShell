@@ -533,7 +533,7 @@ impl PodmanClient {
             .await
             .map_err(|e| PodmanApiError::Connection(format!("Failed to open archive: {}", e)))?;
 
-        let (tx, rx) = tokio::sync::mpsc::channel::<Result<Frame<Bytes>, std::io::Error>>(2);
+        let (tx, rx) = mpsc::channel::<Result<Frame<Bytes>, std::io::Error>>(2);
 
         tokio::spawn(async move {
             let mut buf = vec![0; 8 * 1024 * 1024]; // 8 MB chunks
@@ -576,7 +576,7 @@ impl PodmanClient {
         // Look for "Loaded image: <name>"
         let mut loaded_name = None;
         for line in output.lines() {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
+            if let Ok(json) = serde_json::from_str::<Value>(line) {
                 if let Some(stream) = json.get("stream").and_then(|s| s.as_str()) {
                     if let Some(name) = stream.strip_prefix("Loaded image: ") {
                         loaded_name = Some(name.trim().to_string());

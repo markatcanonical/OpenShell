@@ -10,7 +10,6 @@ use kube::{
 };
 use miette::{Context, IntoDiagnostic, Result};
 use std::collections::BTreeMap;
-use std::path::Path;
 
 use crate::constants::{
     CLIENT_TLS_SECRET_NAME, SERVER_CLIENT_CA_SECRET_NAME, SERVER_TLS_SECRET_NAME,

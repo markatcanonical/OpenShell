@@ -1,8 +1,7 @@
 use crate::constants::{
-    CLIENT_TLS_SECRET_NAME, SERVER_CLIENT_CA_SECRET_NAME, SERVER_TLS_SECRET_NAME,
+    CLIENT_TLS_SECRET_NAME, SERVER_TLS_SECRET_NAME,
 };
 use crate::pki::PkiBundle;
-use k8s_openapi::ByteString;
 use k8s_openapi::api::apps::v1::StatefulSet;
 use k8s_openapi::api::core::v1::Secret;
 use kube::{
@@ -10,7 +9,6 @@ use kube::{
     api::{Patch, PatchParams},
 };
 use miette::{IntoDiagnostic, Result};
-use std::collections::BTreeMap;
 
 pub async fn try_load_pki(client: Client, namespace: &str) -> Result<Option<PkiBundle>> {
     let secrets: Api<Secret> = Api::namespaced(client, namespace);
@@ -127,7 +125,7 @@ pub async fn adopt_legacy_resources(client: Client, namespace: &str) -> Result<(
         };
     }
 
-    let sts: Api<k8s_openapi::api::apps::v1::StatefulSet> =
+    let sts: Api<StatefulSet> =
         Api::namespaced(client.clone(), namespace);
     let svc: Api<k8s_openapi::api::core::v1::Service> = Api::namespaced(client.clone(), namespace);
     let sa: Api<k8s_openapi::api::core::v1::ServiceAccount> =

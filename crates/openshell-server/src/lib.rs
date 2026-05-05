@@ -339,7 +339,7 @@ pub async fn run_server(
         let service = service.clone();
         let mut shutdown_rx = shutdown_tx.subscribe();
         let uds_path_clone = uds_path.clone();
-        accept_tasks.spawn(async move {
+        tokio::spawn(async move {
             run_uds_accept_loop(uds_path_clone, uds_listener, service, &mut shutdown_rx).await;
         });
     }
@@ -460,11 +460,11 @@ async fn run_uds_accept_loop(
     uds_path: String,
     listener: tokio::net::UnixListener,
     service: MultiplexService,
-    shutdown_rx: &mut broadcast::Receiver<()>,
+    shutdown_rx: &mut watch::Receiver<bool>,
 ) {
     loop {
         let (stream, _addr) = tokio::select! {
-            _ = shutdown_rx.recv() => {
+            _ = shutdown_rx.changed() => {
                 debug!(path = %uds_path, "UDS Listener received shutdown");
                 return;
             }

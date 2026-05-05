@@ -280,6 +280,7 @@ pub fn load_gateway_metadata(name: &str) -> Result<GatewayMetadata> {
             name: "local-vm".to_string(),
             gateway_endpoint: endpoint,
             is_remote: false,
+            vm_driver_state_dir: None,
             gateway_port: 0,
             remote_host: None,
             resolved_host: None,
