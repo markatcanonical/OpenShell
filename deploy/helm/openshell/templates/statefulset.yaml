@@ -48,6 +48,8 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["openshell-gateway"]
           args:
+            - --bind-address
+            - "0.0.0.0"
             - --port
             - {{ .Values.service.port | quote }}
             - --health-port

@@ -9,7 +9,7 @@ The gateway runs the control plane API server. It is deployed as a StatefulSet i
 - **Docker target**: `gateway` in `deploy/docker/Dockerfile.images`
 - **Registry**: `ghcr.io/nvidia/openshell/gateway:latest`
 - **Pulled when**: Cluster startup (the Helm chart triggers the pull)
-- **Entrypoint**: `openshell-gateway --port 8080` (gRPC + HTTP, mTLS)
+- **Entrypoint**: `openshell-gateway --bind-address 0.0.0.0 --port 8080` (gRPC + HTTP, mTLS)
 
 ## Cluster (`openshell/cluster`)
 
@@ -23,7 +23,7 @@ The supervisor binary (`openshell-sandbox`) is built before the image build, sta
 
 ## Image Build Pipeline
 
-`deploy/docker/Dockerfile.images` no longer compiles Rust. CI calls `.github/workflows/shadow-rust-native-build.yml` through `workflow_call` to build `openshell-gateway` or `openshell-sandbox` natively on the target architecture. `.github/workflows/docker-build.yml` downloads the resulting artifact, stages it at `deploy/docker/.build/prebuilt-binaries/<arch>/`, builds the per-arch image with the local Buildx driver, and merges multi-arch pushes with `docker buildx imagetools create`. Callers normally publish the GitHub SHA tag, but shadow workflows can pass `image-tag` to publish isolated temporary tags for validation.
+`deploy/docker/Dockerfile.images` no longer compiles Rust. CI calls `.github/workflows/shadow-rust-native-build.yml` through `workflow_call` to build `openshell-gateway` or `openshell-sandbox` natively on the target architecture. `.github/workflows/docker-build.yml` downloads the resulting artifact, stages it at `deploy/docker/.build/prebuilt-binaries/<arch>/`, builds the per-arch image with the local Buildx driver, and merges multi-arch pushes with `docker buildx imagetools create`. Callers normally publish the GitHub SHA tag, but can pass `image-tag` to publish isolated temporary tags for validation.
 
 Local Docker builds use `tasks/scripts/stage-prebuilt-binaries.sh` through `tasks/scripts/docker-build-image.sh` before invoking Docker, so clean checkouts do not need to create the staging directory manually.
 
